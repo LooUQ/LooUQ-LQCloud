@@ -1,0 +1,8 @@
+{
+    "sketch": "PlatformTest.ino",
+    "port": "COM16",
+    "board": "adafruit:samd:adafruit_feather_m0_express",
+    "configuration": "opt=small,usbstack=arduino,debug=on",
+    "debugger": "jlink",
+    "output": ".\\.build"
+}
