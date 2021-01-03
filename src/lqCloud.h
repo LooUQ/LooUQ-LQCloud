@@ -67,33 +67,31 @@
 #define ASSERT_NOTEMPTY(string, failMsg)  if(string[0] == '\0') LQC_faultHandler(failMsg)
 
 typedef void (*faultHndlr_func)(const char* faultMsg);
-typedef void (*reconnectHndlr_func)();
+typedef void (*recoverHndlr_func)();
 typedef double (*pwrStatus_func)();
 typedef double (*battStatus_func)();
 typedef int (*memStatus_func)();
 typedef int (*ntwkSignal_func)();
 
 
-typedef enum 
+typedef enum networkType_tag
 {
     networkType_lte = 0,
     networkType_wifi = 1
 } networkType_t;
 
-typedef enum lqcState_tag
+typedef enum lqcCommMode_tag
 {
-    lqcState_closed = 0,
-    lqcState_open = 1,
-    lqcState_connected,
-    lqcState_badHost = 255
-} lqcState_t;
+    lqcCommMode_notify = 0,             ///< device stays offline most of the time and connects to send or at prescribed intervals 
+    lqcCommMode_continuous = 1,         ///< device is connected all of the time, but will not block local processing if offline
+    lqcCommMode_required = 2            ///< device is connected all of the time and blocks local processing while disconnected
+} lqcCommMode_t;
 
-typedef enum lqcEventType_tag
+typedef enum lqcCommState_tag
 {
-    lqcEventType_telemetry = 0,
-    lqcEventType_alert = 1,
-    lqcEventType_actnResp = 2
-} lqcEventType_t;
+    lqcCommState_offline = 0,
+    lqcCommState_connected = 1
+} lqcCommState_t;
 
 typedef enum lqcEventClass_tag
 {
@@ -101,6 +99,12 @@ typedef enum lqcEventClass_tag
     lqcEventClass_application = 1
 } lqcEventClass_t;
 
+typedef enum lqcEventType_tag
+{
+    lqcEventType_telemetry = 1,
+    lqcEventType_alert = 2,
+    lqcEventType_actnResp = 3
+} lqcEventType_t;
 
 /* Work Schedule 
 ------------------------------------------------------------------------------------------------ */
@@ -236,9 +240,12 @@ extern "C"
 #endif
 
 
-void lqc_create(reconnectHndlr_func reconnectHandler, faultHndlr_func faultHandler, pwrStatus_func pwrStatFunc, battStatus_func battStatFunc, memStatus_func memStatFunc);
-void lqc_connect(const char *hubAddr, const char *deviceId, const char *sasToken, const char *actnKey);
-lqcState_t lqc_getState(const char *hostName);
+void lqc_create(recoverHndlr_func recoverHandler, faultHndlr_func faultHandler, pwrStatus_func pwrStatFunc, battStatus_func battStatFunc, memStatus_func memStatFunc);
+void lqc_configTelemetryCallbacks(pwrStatus_func pwrStatFunc, battStatus_func battStatFunc, memStatus_func memStatFunc);
+void lqc_configMsgLifespans(uint16_t telemetryLifespan, uint16_t alertLifespan, uint16_t actionLifespan);
+
+void lqc_start(const char *hubAddr, const char *deviceId, const char *sasToken, const char *actnKey);
+uint8_t lqc_getState(const char *hostName);
 
 void lqc_doWork();
 void lqc_sendTelemetry(const char *evntName, const char *evntSummary, const char *bodyJson);

@@ -186,7 +186,7 @@ static void actionResponse(lqcEventClass_t eventClass, const char *eventName, ui
     g_lqCloud.msgNm++;
     // "devices/%s/messages/events/mId=~%d&mV=1.0&evT=aRsp&aCId=%s&evC=%s&evN=%s&aRslt=%d"
     snprintf(mqttTopic, MQTT_TOPIC_SZ, MQTT_MSG_D2CTOPIC_ACTIONRESP_TMPLT, g_lqCloud.deviceId, g_lqCloud.msgNm, g_lqCloud.actnMsgId, actnClass, eventName, resultCode);
-    LQC_mqttSend("aRsp", eventName, mqttTopic, responseBody);
+    LQC_mqttSender("aRsp", eventName, mqttTopic, responseBody);
 
     g_lqCloud.actnMsgId[0] = ASCII_cNULL;
     g_lqCloud.actnResult = resultCode;

@@ -70,17 +70,21 @@ void lqc_sendAlert(const char *alrtName, const char *alrtSummary, const char *bo
 #pragma region LQCloud Internal
 
 /**
- *	\brief Notify LQCloud device started (or reconnected from off-line state).
+ *	\brief Notify LQCloud device started (or recovered from off-line state).
  * 
- *  \param [in] asReconnect - True if signalling a reconnect after communications lapse.
+ *  \param [in] startType - Enum describing the device start conditions.
  */
-void LQC_sendDeviceStarted(const char *startType)
+void LQC_sendDeviceStarted(lqcStartType_t startType)
 {
     char summary[LQC_EVENT_SUMMARY_SZ] = {0};
     char body[LQC_EVENT_BODY_SZ] = {0};
+    char restartDescr[18] = {0};
+
+    if (startType == lqcStartType_recover)
+        strncpy(restartDescr, "(Comm.Recover)", 18);
 
     // summary is a simple C-string, body is a string formatted as a JSON object
-    snprintf(summary, LQC_EVENT_SUMMARY_SZ, "DeviceStart%s%s: %s", (startType[0] == 0) ? "":"-", startType, g_lqCloud.deviceId);
+    snprintf(summary, LQC_EVENT_SUMMARY_SZ, "DeviceStart:%s %s", g_lqCloud.deviceId, restartDescr);
     snprintf(body, LQC_EVENT_BODY_SZ, "{\"dvcInfo\":{\"dId\":\"%s\",\"codeVer\":\"LooUQ-CloudMQTTv1.1\",\"msgVer\":\"1.0\"},\"ntwkInfo\":{\"ntwkType\":\"%s\",\"ntwkDetail\":\"%s\"}}", g_lqCloud.deviceId, g_lqCloud.networkType, g_lqCloud.networkName);
     sendAlert(lqcEventClass_lqcloud, "dStart", summary, body);
 }
@@ -107,7 +111,7 @@ static void sendAlert(lqcEventClass_t alrtClass, const char *alrtName, const cha
     // "devices/%s/messages/events/mId=~%d&mV=1.0&evT=alrt&evC=%s&evN=%s"
     snprintf(mqttTopic, MQTT_TOPIC_SZ, MQTT_MSG_D2CTOPIC_ALERT_TMPLT, g_lqCloud.deviceId, g_lqCloud.msgNm, eventClass, mqttName);
     snprintf(mqttBody, MQTT_MESSAGE_SZ, "{%s\"alert\": %s}", mqttSummary, bodyJson);
-    LQC_mqttSend("alrt", mqttSummary, mqttTopic, mqttBody);
+    LQC_mqttSender("alrt", mqttSummary, mqttTopic, mqttBody);
 }
 
 

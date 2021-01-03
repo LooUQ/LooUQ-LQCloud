@@ -94,6 +94,11 @@ typedef struct lqcActn_applAction_tag
 //     uint16_t len;
 // } lqcProp_t;
 
+typedef enum lqcStartType_tag
+{
+    lqcStartType_cold = 0,
+    lqcStartType_recover = 1
+} lqcStartType_t;
 
 /** 
  *  \brief typedef of MQTT subscription receiver function (required signature for appl callback).
@@ -113,12 +118,16 @@ typedef struct lqCloudDevice_tag
     char iothubAddr[IOTHUB_URL_SZ];                 ///< URL of the configured LooUQ Cloud ingress point (Az IoTHub)
     char sasToken[IOTHUB_SASTOKEN_SZ];              ///< Device access secret
     uint16_t msgNm;                                 ///< LQ Cloud client message number, incr each send. Note: independent from MQTT message ID and IOTHUB mId property.
+    lqcCommMode_t commMode;                         ///< Device to Cloud communications mode: OnDemand, Continuous, Required.
+    uint8_t onDemandTimeoutMinutes;                 ///< The time the communications channel stays open for onDemand mode.
+    lqc_applAction_t applActions[LQCACTN_CNT];      ///< Application invokable public methods (registered with LQ Cloud). LQ Cloud validates requests prior to messaging device.
     char actnMsgId[IOTHUB_CORRELATIONID_SZ];        ///< Action request mId, will be aCId (correlation ID).
     char actnName[LQCACTN_NAME_SZ];                 ///< Last action requested by cloud. Is reset on action request receive.
-    uint16_t actnResult;                            ///< Action result code for last action request. Is update for in-flight actions. 
     char actnKey[LQCACTN_AKEY_SZ];                  ///< Optional action key, set on user's subscription
-    lqc_applAction_t applActions[LQCACTN_CNT];      ///< Application invokable public methods (registered with LQ Cloud). LQ Cloud validates requests prior to messaging device.
-    reconnectHndlr_func applReconnectHandler_func;  ///< (optional) Callback to application function to service MQTT reconnection.
+    uint16_t actnResult;                            ///< Action result code for last action request. 
+    millisTime_t sendLastAt;                        ///< Millis count for last send operation.
+    uint8_t sendFaultType;                          ///< If send D2C msg fails, message type. 
+    recoverHndlr_func applRecoverHandler_func;      ///< (optional) Callback to application function to service MQTT reconnection.
     faultHndlr_func applFaultHandler_func;          ///< (optional) Callback to application function to service Cloud connection fault.
     pwrStatus_func powerStatus_func;                ///< (optional) Callback for Cloud to get power status. 
     battStatus_func batteryStatus_func;             ///< (optional) Callback for Cloud to get battery status. 
@@ -131,9 +140,9 @@ typedef struct lqCloudDevice_tag
 * These are not defined static because they are used across compilation units.
 ------------------------------------------------------------------------------------------------ */
 
-void LQC_mqttSend(const char *eventType, const char *summary, const char *topic, const char *body);
+void LQC_mqttSender(const char *eventType, const char *summary, const char *topic, const char *body);
 //void LQC_mqttSend(lqcEventType_t eventType, resultCode_t resultCode, lqcEventClass_t eventClass, const char *name, const char *summary, const char *body);
-void LQC_sendDeviceStarted(const char *startType);
+void LQC_sendDeviceStarted(lqcStartType_t startType);
 void LQC_processActionRequest(const char *actnName, keyValueDict_t actnParams, const char *msgBody);
 resultCode_t LQC_cloudReconnect();
 void LQC_faultHandler(const char *faultMsg);

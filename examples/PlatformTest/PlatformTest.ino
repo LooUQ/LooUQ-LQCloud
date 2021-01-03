@@ -72,7 +72,7 @@ void setup() {
     neo.begin();                                        // using feather NEO as a "status" indicator
     neo.setBrightness(NEO_BLVL);                        // dim to use uint8 values for RGB
 
-    lqc_create(appRecoveryHandler, appFaultHandler, NULL, getBatteryVoltage, getFreeMemory);    // add LQ Cloud to project and register local services
+    lqc_create(appRecoverHandler, appFaultHandler, NULL, getBatteryVoltage, getFreeMemory);    // add LQ Cloud to project and register local services
 
     /* Callbacks
      * recoveryCompleteHandler:
@@ -121,7 +121,7 @@ void setup() {
     }
     PRINTF(dbgColor_white, "Network type is %s on %s\r", networkOp.ntwkMode, networkOp.operName);
 
-    lqc_connect(LQCLOUD_URL, mdminfo_ltem1().imei, LQCLOUD_SASTOKEN, NULL);
+    lqc_start(LQCLOUD_URL, mdminfo_ltem1().imei, LQCLOUD_SASTOKEN, NULL);
     PRINTF(dbgColor_info, "Connected to LQ Cloud, Device started.\r");
 
     sendTelemetry_intvl = workSched_createPeriodic(PERIOD_FROM_SECONDS(30));
@@ -324,7 +324,7 @@ void appFaultHandler(const char* faultMsg)
 }
 
 
-void appRecoveryHandler()
+void appRecoverHandler()
 {
     PRINTFC(dbgColor_info, "PlatformTest Cloud-Recovery Successful\r");
     // update local indicators like LEDs, OLED, etc.

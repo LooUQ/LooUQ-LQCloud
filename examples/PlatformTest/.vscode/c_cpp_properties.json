@@ -5,7 +5,6 @@
             "includePath": [
                 "${workspaceFolder}/**",
                 "C:/Users/GregTerrell/Documents/CodeDev/Arduino/libraries/**",
-                "C:/Users/GregTerrell/Documents/CodeDev/Arduino/libraries/LooUQ_Cloud/src/**",
                 "C:/Users/GregTerrell/AppData/Local/Arduino15/packages/arduino/tools/arm-none-eabi-gcc/7-2017q4/lib/gcc/arm-none-eabi/7.2.1/include",
                 "C:/Users/GregTerrell/AppData/Local/Arduino15/packages/arduino/tools/arm-none-eabi-gcc/7-2017q4/lib/gcc/arm-none-eabi/7.2.1/include-fixed",
                 "C:/Users/GregTerrell/AppData/Local/Arduino15/packages/arduino/tools/CMSIS-Atmel/1.2.0/CMSIS/Device/ATMEL",

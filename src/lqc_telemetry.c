@@ -70,6 +70,6 @@ void lqc_sendTelemetry(const char *evntName, const char *evntSummary, const char
     // "devices/%s/messages/events/mId=~%d&mV=1.0&evT=tdat&evC=%s&evN=%s"
     snprintf(mqttTopic, MQTT_TOPIC_SZ, MQTT_MSG_D2CTOPIC_TELEMETRY_TMPLT, g_lqCloud.deviceId, g_lqCloud.msgNm, "appl", mqttName);
     snprintf(mqttBody, MQTT_MESSAGE_SZ, "{%s\"telemetry\": %s%s}", mqttSummary, bodyJson, deviceStatus);
-    LQC_mqttSend("tdat", evntSummary, mqttTopic, mqttBody);
+    LQC_mqttSender("tdat", evntSummary, mqttTopic, mqttBody);
 }
 
