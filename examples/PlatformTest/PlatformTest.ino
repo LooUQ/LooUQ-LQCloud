@@ -14,15 +14,24 @@
 #define _DEBUG                          // commment out to disable PRINTF expansion to statements // PER SOURCE TRANSLATION UNIT 
 #include <ltem1c.h>
 #include <lqCloud.h>
-#include "dvcSettings.h"
 // debugging output options             UNCOMMENT one of the next two lines to direct debug (PRINTF) output
 #include <jlinkRtt.h>                   // output debug PRINTF macros to J-Link RTT channel
 // #define SERIAL_OPT 1                    // enable serial port comm with devl host (1=force ready test)
 
+#include "dvcSettings.h"
 
 #include <Adafruit_NeoPixel.h>
 
+
 #define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
+#define VERIZON_DATA_CONTEXT 1
+
+#define SUMMARY_SZ 80
+#define BODY_SZ 400
+
+#define ENABLE_NEOPIXEL
+#define NEO_PIN 8
+#define NEO_BRIGHTNESS 5                                    // brightness: 0-255: Note these things are bright, so 5 is visible
 
 /* -------------------------------------------------------------------------------------------------------------------- */
 
@@ -31,25 +40,22 @@ const int buttonPin = 9;                // double duty with battery sense, see g
 const int debouncePeriod = 10;
 
 // application variables
-uint16_t loopCnt = 1;
-//workSchedule_t networkStartRetry_intvl;
-workSchedule_t sendTelemetry_intvl;
-workSchedule_t alert_intvl;
-// test action doLedFlash has a worker function to do the work without blocking
-workSchedule_t ledFlash_intvl;
-
-#define VERIZON_DATA_CONTEXT 1
-
-#define SUMMARY_SZ 80
-#define BODY_SZ 400
 char telemetry[BODY_SZ];
+bool lqcConnected = false;
+uint16_t loopCnt = 1;
+wrkTime_t sendTelemetry_intvl;
+wrkTime_t alert_intvl;
 
-#define NEO_PIN 8
-#define NEO_BLVL 5      // brightness: 0-255, note these things are bright!
+// example action doLedFlash: has a worker function to do the work without blocking
+wrkTime_t ledFlash_intvl;
+
+// NEOPixel display
+#ifdef ENABLE_NEOPIXEL
 Adafruit_NeoPixel neo(1, NEO_PIN, NEO_GRB + NEO_KHZ800);
+#endif
 
-
-/* setup() ------------------------------------------------------------------------------------------------------------ */
+/* setup() 
+ * --------------------------------------------------------------------------------------------- */
 
 void setup() {
     #ifdef USE_SERIAL
@@ -69,19 +75,19 @@ void setup() {
     digitalWrite(ledPin, HIGH);                         // off
     asm(".global _printf_float");                       // forces build to link in float support for printf
 
+    #ifdef ENABLE_NEOPIXEL
     neo.begin();                                        // using feather NEO as a "status" indicator
-    neo.setBrightness(NEO_BLVL);                        // dim to use uint8 values for RGB
+    neo.setBrightness(NEO_BRIGHTNESS);                  // dim globally to use uint8 (0..255) values for RGB
+    #endif
 
-    lqc_create(appRecoverHandler, appFaultHandler, NULL, getBatteryVoltage, getFreeMemory);    // add LQ Cloud to project and register local services
+    lqc_create(appNotificationHandler, NULL, getBatteryVoltage, getFreeMemory);    // add LQ Cloud to project and register local services
 
     /* Callbacks
-     * recoveryCompleteHandler:
-     * faultHandler:
-     * getUxpPwrStatus: 
-     * getBatteryVoltage:
-     * getFreeMemory: 
+     * - cloudNotificationsHandler:
+     * - getUxpPwrStatus: 
+     * - getBatteryVoltage:
+     * - getFreeMemory: 
     */
-
 
     ltem1_create(ltem1_pinConfig, ltem1Start_powerOn, ltem1Functionality_services);
     mqtt_create();
@@ -91,10 +97,12 @@ void setup() {
     
     networkOperator_t networkOp;
 
-    while (true)
+    while (true)                                        // wait for cell network PDP context available
     {
-        neo.setPixelColor(0, 0, 0, 255);               // blue during initialization
+        #ifdef ENABLE_NEOPIXEL
+        neo.setPixelColor(0, 0, 0, 255);                // blue during initialization
         neo.show();
+        #endif
         networkOp = ntwk_awaitOperator(30000);
 
         if (strlen(networkOp.operName) > 0)
@@ -113,25 +121,28 @@ void setup() {
             PRINTFC(dbgColor_white, "PDP Context=1, IPaddr=%s\r", pdpCntxt->ipAddress);
             break;
         }
+
+        #ifdef ENABLE_NEOPIXEL
         neo.setPixelColor(0, 255, 80, 0);
         neo.show();
+        #endif
         millisTime_t startRetryAt = millis();
-        while (!workSched_elapsed(startRetryAt, PERIOD_FROM_SECONDS(90))) { }
-
+        while (!wrkTime_elapsed(startRetryAt, PERIOD_FROM_SECONDS(90))) { }     // local (blocking) wait for cell ntwk retry
     }
     PRINTF(dbgColor_white, "Network type is %s on %s\r", networkOp.ntwkMode, networkOp.operName);
 
     lqc_start(LQCLOUD_URL, mdminfo_ltem1().imei, LQCLOUD_SASTOKEN, NULL);
     PRINTF(dbgColor_info, "Connected to LQ Cloud, Device started.\r");
 
-    sendTelemetry_intvl = workSched_createPeriodic(PERIOD_FROM_SECONDS(30));
-    alert_intvl = workSched_createPeriodic(PERIOD_FROM_MINUTES(60));
-
+    sendTelemetry_intvl = wrkTime_createPeriodic(PERIOD_FROM_SECONDS(30));      // this application sends telemetry continuously every 30 secs
+    alert_intvl = wrkTime_createPeriodic(PERIOD_FROM_MINUTES(60));              // and a periodic alert every 60 min
     registerActions();
 
     // status: init completed.
-    neo.setPixelColor(0, 0, NEO_BLVL, 0);       // green
+    #ifdef ENABLE_NEOPIXEL
+    neo.setPixelColor(0, 0, 255, 0);       // green
     neo.show();
+    #endif
 }
 
 
@@ -139,14 +150,14 @@ void setup() {
 
 void loop() 
 {
-    if (workSched_doNow(&alert_intvl))
+    if (wrkTime_doNow(&alert_intvl))
     {
         char alrtSummary[40];
         snprintf(alrtSummary, 40, "Periodic Alert, Loop=%d", loopCnt);
         PRINTF(dbgColor_magenta, "Sending periodic alert.\r");
         lqc_sendAlert("cloudTest-periodic-alert", "PeriodicAlert", alrtSummary);
     }
-    if (workSched_doNow(&sendTelemetry_intvl))
+    if (wrkTime_doNow(&sendTelemetry_intvl))
     {
         PRINTF(dbgColor_dMagenta, "\rLoop=%i>>\r", loopCnt);
 
@@ -253,7 +264,7 @@ static void doFlashLed(keyValueDict_t params)
 
     if (ledFlash_intvl.userState == 0)
     {
-        workSched_createPeriodic(cycleMillis);
+        wrkTime_createPeriodic(cycleMillis);
         ledFlash_intvl.userState = flashes;                     // this will count down, 0 = complete
     }
     else
@@ -276,7 +287,7 @@ void applWork_doFlashLed()
 {
     // no loop here, do some work and leave
 
-    if (ledFlash_intvl.userState > 0 && workSched_doNow(&ledFlash_intvl))         // put state test first to short-circuit evaluation
+    if (ledFlash_intvl.userState > 0 && wrkTime_doNow(&ledFlash_intvl))         // put state test first to short-circuit evaluation
     {
         if (ledFlash_intvl.userState % 2 == 0)
             digitalWrite(ledPin, LOW);      // ON
@@ -309,31 +320,46 @@ void registerActions()
 /* Platform helpers
 ========================================================================================================================= */
 
-void appFaultHandler(const char* faultMsg)
+void appNotificationHandler(lqcAppNotification_t notifType, const char *notifMsg)
 {
-    PRINTFC(dbgColor_error, "PlatformTest Cloud-Fault: %s\r", faultMsg);
+    switch (notifType)
+    {
+        case lqcAppNotification_connect:
+            PRINTFC(dbgColor_info, "LQCloud Connected.\r");
+            // update local indicators like LEDs, OLED, etc.
+            #ifdef ENABLE_NEOPIXEL
+            neo.setPixelColor(0, 0, 255, 0);        // green
+            neo.show();
+            #endif
+            return;
 
-    // update local indicators like LEDs, OLED, etc.
-    // neo pixel RED
-    neo.setPixelColor(0, NEO_BLVL, 0, 0);        // red
-    neo.show();
+        case lqcAppNotification_disconnect:
+            PRINTFC(dbgColor_warn, "LQCloud Disconnected.\r");
+            // update local indicators like LEDs, OLED, etc.
+            #ifdef ENABLE_NEOPIXEL
+            neo.setPixelColor(0, 255, 255, 0);      // yellow
+            neo.show();
+            #endif
+            return;
 
-    // optionally HALT or return to LQCloud to periodically attempt reconnect.
-    // while (true) { }
-    return;
+        //case lqcAppNotification_connectStatus:
+        //    return
+
+        case lqcAppNotification_hardFault:
+            PRINTFC(dbgColor_error, "LQCloud-HardFault: %s\r", notifMsg);
+            // update local indicators like LEDs, OLED, etc.
+            #ifdef ENABLE_NEOPIXEL
+            neo.setPixelColor(0, 255, 0, 0);        // red
+            neo.show();
+            #endif
+            // optionally HALT or return to LQCloud to periodically attempt reconnect.
+            // while (true) { }
+            return;
+            
+        // default: fall through and return
+    }
 }
 
-
-void appRecoverHandler()
-{
-    PRINTFC(dbgColor_info, "PlatformTest Cloud-Recovery Successful\r");
-    // update local indicators like LEDs, OLED, etc.
-    // neo pixel RED
-    neo.setPixelColor(0, 0, NEO_BLVL, 0);        // green
-    neo.show();
-
-    return;
-}
 
 
 #define VBAT_ENABLED 

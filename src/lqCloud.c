@@ -9,6 +9,7 @@
 // #define SERIAL_OPT 1                    // enable serial port comm with devl host (1=force ready test)
 
 #define MIN(x, y) (((x)<(y)) ? (x):(y))
+#define MAX(x, y) (((x)>(y)) ? (x):(y))
 #define SEND_RETRIES 3
 #define SEND_RETRYWAIT 2000
 
@@ -16,8 +17,10 @@
 lqCloudDevice_t g_lqCloud;              /* GLOBAL LQCLOUD OBJECT */
 
 /* Local (static/non-public) functions */
+static uint8_t mqttConnect();
+static void mqttDisconnect();
 static void mqttReceiver(const char *topic, const char *topicProps, const char *message);
-static void commDoWork();
+static void mqttSenderDoWork();
 
 
 #pragma region  Public LooUQ Clouc functions
@@ -27,10 +30,9 @@ static void commDoWork();
  *
  *	\param[in] faultHandler Function pointer to a local fault handler (perform local indications).
  */
-void lqc_create(faultHndlr_func faultHandler, recoverHndlr_func recoverHandler, pwrStatus_func pwrStatFunc, battStatus_func battStatFunc, memStatus_func memStatFunc)
+void lqc_create(lqcAppNotification_func appNotificationFunc, pwrStatus_func pwrStatFunc, battStatus_func battStatFunc, memStatus_func memStatFunc)
 {
-    g_lqCloud.applFaultHandler_func = faultHandler;
-    g_lqCloud.applRecoverHandler_func = recoverHandler;
+    g_lqCloud.appNotification_func = appNotificationFunc;
     g_lqCloud.powerStatus_func = pwrStatFunc;
     g_lqCloud.batteryStatus_func = battStatFunc;
     g_lqCloud.memoryStatus_func = memStatFunc;
@@ -45,40 +47,40 @@ void lqc_create(faultHndlr_func faultHandler, recoverHndlr_func recoverHandler, 
  */
 void lqc_start(const char *hubAddr, const char *deviceId, const char *sasToken, const char *actnKey)
 {
-    char userId[IOTHUB_USERID_SZ];
-    char recvTopic[MQTT_TOPIC_NAME_SZ];
-
     strncpy(g_lqCloud.iothubAddr, hubAddr, IOTHUB_URL_SZ);
     strncpy(g_lqCloud.deviceId, deviceId, LQCLOUD_DEVICEID_SZ);
     strncpy(g_lqCloud.sasToken, sasToken, IOTHUB_SASTOKEN_SZ);
     strncpy(g_lqCloud.actnKey, actnKey, LQCACTN_AKEY_SZ);
-    
-    snprintf(userId, IOTHUB_USERID_SZ, MQTT_IOTHUB_USERID_TMPLT, g_lqCloud.iothubAddr, g_lqCloud.deviceId);
-    snprintf(recvTopic, MQTT_TOPIC_NAME_SZ, MQTT_IOTHUB_C2D_RECVTOPIC_TMPLT, g_lqCloud.deviceId);
 
-    // recovery returns on full open\connect\subscribe complete, don't exit to fault handler until past
     uint8_t lqcConnectState = 0;
-    if (mqtt_open(g_lqCloud.iothubAddr, IOTHUB_PORT, sslVersion_tls12, mqttVersion_311) == RESULT_CODE_SUCCESS)
-        lqcConnectState++;
-    if (lqcConnectState == 1 && mqtt_connect(g_lqCloud.deviceId, userId, g_lqCloud.sasToken, mqttSession_cleanStart) == RESULT_CODE_SUCCESS)
-        lqcConnectState++;
-    if (lqcConnectState == 2 && mqtt_subscribe(recvTopic, mqttQos_1, mqttReceiver) == RESULT_CODE_SUCCESS)
-        lqcConnectState++;
+    uint16_t retries = 0;
+    char connectionMsg[80] = {0};
 
-    if (lqcConnectState < 3)
-        LQC_faultHandler(lqcConnectState == 0 ? "MQTT open failed." : (lqcConnectState == 1) ? "MQTT connect failed." :  "MQTT subscribe to IoTHub C2D messages failed.");
-    // faultHandler returns here after network\mqtt recovered.
+    while (lqcConnectState != lqcConnectState_subscribed )
+    {
+        lqcConnectState = mqttConnect();
+        if (lqcConnectState == lqcConnectState_subscribed)
+            break;
 
-    // ASSERT(mqtt_open(g_lqCloud.iothubAddr, IOTHUB_PORT, sslVersion_tls12, mqttVersion_311) == RESULT_CODE_SUCCESS, "MQTT open failed.");
-    // ASSERT(mqtt_connect(g_lqCloud.deviceId, userId, g_lqCloud.sasToken, mqttSession_cleanStart) == RESULT_CODE_SUCCESS, "MQTT connect failed.");
-    // ASSERT(mqtt_subscribe(recvTopic, mqttQos_1, mqttReceiver) == RESULT_CODE_SUCCESS, "MQTT subscribe to IoTHub C2D messages failed.");
+        PRINTFC(dbgColor_white, ".");
+        snprintf(connectionMsg, 80, "LQC-Start: connect attempt failed, retries=%d", retries);
+        LQC_appNotify(lqcAppNotification_connectStatus, connectionMsg);
+        delay(1000);
+        retries++;
+    }
+    
+    LQC_appNotify(lqcAppNotification_connect, "");
 
     // LQCloud private function in alerts
     LQC_sendDeviceStarted(lqcStartType_cold);
 }
 
+lqcConnectMode_t lqc_getConnectedMode()
+{
+    return g_lqCloud.connectMode;
+}
 
-uint8_t lqc_getCommState(const char *hostName)
+lqcConnectState_t lqc_getConnectState(const char *hostName)
 {
     return mqtt_status(hostName);
 }
@@ -102,7 +104,13 @@ char *lqc_getDeviceShortName()
 void lqc_doWork()
 {
     ltem1_doWork();
-    commDoWork();
+    mqttSenderDoWork();
+
+    if (g_lqCloud.connectMode == lqcConnectMode_onDemand && wrkTime_elapsed(g_lqCloud.sendLastAt, g_lqCloud.onDemandTimeoutMinutes))
+    {
+        // if ConnectionMode == onDemand, cut connection if it has be at least timeout period since last send
+        // tobebuilt
+    }
 }
 
 #pragma endregion
@@ -124,26 +132,66 @@ void lqc_doWork()
  */
 void LQC_mqttSender(const char *eventType, const char *summary, const char *topic, const char *body)
 {
+    static millisDuration_t maxExecDuration;
+    millisDuration_t execDuration;
 
     // handle retries, delay between retries, setting global comm status flags, preservation of queued msg, tagging delay msg with delay duration
 
+    g_lqCloud.sendLastAt = millis();
+    socketResult_t pubResult = mqtt_publish(topic, mqttQos_1, body);                    // send message (1st attempt)
+    execDuration = millis() - g_lqCloud.sendLastAt;
+    maxExecDuration = MAX(maxExecDuration, execDuration);
+    PRINTFC(dbgColor_cyan, "Publish maxDuration=%d, execDuration=%d\r", maxExecDuration, execDuration);
 
-    socketResult_t pubResult = mqtt_publish(topic, mqttQos_1, body);
-    if (pubResult != RESULT_CODE_SUCCESS)
+    /* INTERIM CODE TO SEE RECOVERY BEHAVIOR  !! BLOCKING WAIT !!
+     ************************************************************/
+
+    uint8_t tries = 1;
+    while (pubResult != RESULT_CODE_SUCCESS && tries < MQTTSEND_RETRIES_MAX)
     {
-        char faultMsg[120];
-        snprintf(faultMsg, 120, "Send failed (%s), summary=%s", eventType, summary);
-        LQC_faultHandler(faultMsg);
+        PRINTFC(dbgColor_warn, "MQTT publish failed: status=%d try=%d\r", pubResult, tries);
+        tries++;
+        delay(MQTTSEND_RETRY_WAITMILLIS);                                   // blocking wait
 
-        // return from faultHandler indicates communications reestablished
-        pubResult = mqtt_publish(topic, mqttQos_1, body);
-        if (pubResult != RESULT_CODE_SUCCESS)
+        if (mqtt_status("") != mqttStatus_connected)                        // check connected before attempting resend
         {
-            LQC_faultHandler("Send FINAL failed, MESSAGE DISCARDED!");
+            LQC_appNotify(lqcAppNotification_disconnect, "");
+            uint8_t connectState = 0;
+            while (connectState != lqcConnectState_connected)
+            {
+                connectState = mqttConnect();
+            }
+            LQC_appNotify(lqcAppNotification_connect, "");
         }
+        g_lqCloud.sendLastAt = millis();
+        pubResult = mqtt_publish(topic, mqttQos_1, body);                    // send message retry
+        execDuration = millis() - g_lqCloud.sendLastAt;
+        maxExecDuration = MAX(maxExecDuration, execDuration);
+        PRINTFC(dbgColor_cyan, "Publish maxDuration=%d, execDuration=%d\r", maxExecDuration, execDuration);
     }
+    if (pubResult != RESULT_CODE_SUCCESS)
+        LQC_faultHandler("Excessive cloud message publish failures, quiting!");
+
+    PRINTFC(dbgColor_info, "MQTT publish: result=%d\r\r", pubResult);
+    
+    // // FINAL CODE, REPLACES ABOVE WHEN IMPLEMENTING mqttSenderDoWork()
+    // if (pubResult != RESULT_CODE_SUCCESS)                                   // send failed
+    // {
+    //     // queue msg >> lqcPendingMsg_t     (enqueued time, topic, msg)
+    // }
 }
 
+/**
+ *	\brief LQCloud Private: invoke user application notification handler to inform it of LQCloud event.
+ *
+ *  \param [in] notificationType - Category of the event.
+ *  \param [in] notificationMsg - Message string describing event.
+ */
+void LQC_appNotify(lqcAppNotification_t notificationType, const char *notificationMsg)
+{
+    if (g_lqCloud.appNotification_func)
+        g_lqCloud.appNotification_func(notificationType, notificationMsg);
+}
 
 
 /**
@@ -157,25 +205,12 @@ void LQC_faultHandler(const char *faultMsg)
     //ntwk_resetPdpContexts();
     
     mqttStatus_t mqttStatus = mqtt_status("");
+
     PRINTFC(dbgColor_error, "LQC-FAULT: mqttState=%d msg=%s\r", mqttStatus, faultMsg);
+    LQC_appNotify(lqcAppNotification_hardFault, faultMsg);
 
-    if (g_lqCloud.applFaultHandler_func)                    // give application local FAULT handler an opportunity to display fault
-        g_lqCloud.applFaultHandler_func(faultMsg);
-
-    // workSchedule_t faultRecovery_intvl = workSched_createPeriodic(PERIOD_FROM_SECONDS(LQC_RECOVERY_WAIT_SECONDS));
-    // while (true)
-    // {
-    //     /* LQCloud uses reconnect\recovery handler callback rather than _Noreturn to prevent stack creep. Using a no return strategy
-    //      * could be implemented if the call is to a new main() type function. Making this function _Noreturn requires duplication of main() logic
-    //      * here -or- the reexecution of the real main() and its setup() functions which fully restarts the application. 
-    //     */
-    //     if (workSched_doNow(&faultRecovery_intvl) && LQC_cloudReconnect())
-    //     {
-    //         if (g_lqCloud.applReconnectHandler_func)        // give application local RECONNECT\RECOVERY handler an opportunity reset application conditions
-    //             g_lqCloud.applReconnectHandler_func();
-    //         break;
-    //     }
-    // }
+    uint8_t waitForever = 1;
+    while (waitForever) {}
 }
 
 
@@ -217,59 +252,85 @@ static void mqttReceiver(const char *topic, const char *topicProps, const char *
     LQC_processActionRequest(g_lqCloud.actnName, mqttProps, msgBody);
 }
 
-/**
- *	\brief Background process to manage communications\connectivity.
- */
-static void commDoWork()
-{
-    // if commMode==OnDemand: periodically connect to cloud so to receive any queue C2D msgs (LQC actions)
-        // onDemand period: 0 = no period wake for C2D msg, >0 = time in MINUTES between periodic connections
 
-    // if commMode==Continuous|Required && offline: attempt to reestablish cloud connection
-}
-
-
-/* cloudConnect() NEEDS REFACTORED FOR SEND() TO MANAGE IMMEDIATE COMM RECOVERY AND THEN DEFER LONG RUNNING OUTAGE TO commDoWork()
-*/
-
-
-/**
- *	\brief LQCloud Private: reconnect to cloud following communications error.
- * 
- *  \return Status code
- */
-resultCode_t cloudConnect()
+static uint8_t mqttConnect()
 {
     char userId[IOTHUB_USERID_SZ];
     char recvTopic[MQTT_TOPIC_NAME_SZ];
-    resultCode_t resultCd;
 
     snprintf(userId, IOTHUB_USERID_SZ, MQTT_IOTHUB_USERID_TMPLT, g_lqCloud.iothubAddr, g_lqCloud.deviceId);
     snprintf(recvTopic, MQTT_TOPIC_NAME_SZ, MQTT_IOTHUB_C2D_RECVTOPIC_TMPLT, g_lqCloud.deviceId);
 
-    resultCd = mqtt_open(g_lqCloud.iothubAddr, IOTHUB_PORT, sslVersion_tls12, mqttVersion_311); 
-    if (resultCd != RESULT_CODE_SUCCESS)
-    {
-        PRINTFC(dbgColor_warn, "LQC-Recovery: Open failed (%d).\r", resultCd);
-        return resultCd;
-    }
-    resultCd = mqtt_connect(g_lqCloud.deviceId, userId, g_lqCloud.sasToken, mqttSession_cleanStart);
-    if (resultCd != RESULT_CODE_SUCCESS)
-    {
-        PRINTFC(dbgColor_warn, "LQC-Recovery: Connect failed (%d).\r", resultCd);
-        return resultCd;
-    }
-    resultCd = mqtt_subscribe(recvTopic, mqttQos_1, mqttReceiver);
-    if (resultCd != RESULT_CODE_SUCCESS)
-    {
-        PRINTFC(dbgColor_warn, "LQC-Recovery: C2D subscribe failed (%d).\r", resultCd);
-        return resultCd;
-    }
+    // recovery returns on full open\connect\subscribe complete, don't exit to fault handler until past
+    uint8_t connectState = 0;
+    if (mqtt_open(g_lqCloud.iothubAddr, IOTHUB_PORT, sslVersion_tls12, mqttVersion_311) == RESULT_CODE_SUCCESS)
+        connectState++;
+    if (connectState == 1 && mqtt_connect(g_lqCloud.deviceId, userId, g_lqCloud.sasToken, mqttSession_cleanStart) == RESULT_CODE_SUCCESS)
+        connectState++;
+    if (connectState == 2 && mqtt_subscribe(recvTopic, mqttQos_1, mqttReceiver) == RESULT_CODE_SUCCESS)
+        connectState++;
 
-    // LQCloud private function in alerts
-    LQC_sendDeviceStarted(lqcStartType_recover);
-    return RESULT_CODE_SUCCESS;
+    return connectState;
 }
+
+
+static void mqttDisconnect()
+{
+}
+
+
+/**
+ *	\brief  Background queued message sender.
+ */
+static void mqttSenderDoWork()
+{
+    // encode queueing delay, add property to topic props bag
+    // attempt send
+    // if success : clear pending
+    // if failure : inc tries
+    return;
+}
+
+
+
+
+// /**
+//  *	\brief LQCloud Private: reconnect to cloud following communications error.
+//  * 
+//  *  \return Status code
+//  */
+// resultCode_t cloudConnect()
+// {
+//     char userId[IOTHUB_USERID_SZ];
+//     char recvTopic[MQTT_TOPIC_NAME_SZ];
+//     resultCode_t resultCd;
+
+//     snprintf(userId, IOTHUB_USERID_SZ, MQTT_IOTHUB_USERID_TMPLT, g_lqCloud.iothubAddr, g_lqCloud.deviceId);
+//     snprintf(recvTopic, MQTT_TOPIC_NAME_SZ, MQTT_IOTHUB_C2D_RECVTOPIC_TMPLT, g_lqCloud.deviceId);
+
+//     resultCd = mqtt_open(g_lqCloud.iothubAddr, IOTHUB_PORT, sslVersion_tls12, mqttVersion_311); 
+//     if (resultCd != RESULT_CODE_SUCCESS)
+//     {
+//         PRINTFC(dbgColor_warn, "LQC-Recovery: Open failed (%d).\r", resultCd);
+//         return resultCd;
+//     }
+//     resultCd = mqtt_connect(g_lqCloud.deviceId, userId, g_lqCloud.sasToken, mqttSession_cleanStart);
+//     if (resultCd != RESULT_CODE_SUCCESS)
+//     {
+//         PRINTFC(dbgColor_warn, "LQC-Recovery: Connect failed (%d).\r", resultCd);
+//         return resultCd;
+//     }
+//     resultCd = mqtt_subscribe(recvTopic, mqttQos_1, mqttReceiver);
+//     if (resultCd != RESULT_CODE_SUCCESS)
+//     {
+//         PRINTFC(dbgColor_warn, "LQC-Recovery: C2D subscribe failed (%d).\r", resultCd);
+//         return resultCd;
+//     }
+
+//     // LQCloud private function in alerts
+//     LQC_sendDeviceStarted(lqcStartType_recover);
+//     return RESULT_CODE_SUCCESS;
+// }
 
 
 #pragma endregion

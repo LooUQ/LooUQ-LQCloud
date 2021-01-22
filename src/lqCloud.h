@@ -33,7 +33,7 @@
 // #include "lqc_telemetry.h"
 // #include "lqc_actions.h"
 // #include "lqc_alerts.h"
-// #include "lqc_wrkSched.h"
+// #include "lqc_wrkTime.h"
 // #include "lqc_json.h"
 
 #define KEYVALUE_DICT_SZ 15
@@ -46,32 +46,12 @@
 #define ACTION_RESULT_NOTFOUND 404
 #define ACTION_RESULT_FAILURE 500
 
-// #define BODY_SZ 601
-// #define TOPIC_SZ 201
-// #define PROPS_SZ 201
-// #define DSTAT_SZ 61
+#define MQTTSEND_RETRIES_MAX 20
+#define MQTTSEND_RETRY_WAITMILLIS 1000
+#define MQTTSEND_QUEUEDMSG_MAX 4
 
-// #define IOTHUB_URL_SZ 48
-// #define IOTHUB_USERID_SZ 120
-// #define IOTHUB_SASTOKEN_SZ 200
-// #define IOTHUB_CORRELATIONID_SZ 38
-// #define IOTHUB_PORT 8883
-// #define LQCLOUD_DEVICEID_SZ 40
-// #define LQCLOUD_DVCSHORTNAME_SZ 12
-
-// #define LQCLOUD_ACTIONS_MAX 6
-// #define LQCLOUD_APPLKEY_SZ 12
-
-
-#define ASSERT(trueResult, failMsg)  if(!(trueResult))  LQC_faultHandler(failMsg)
-#define ASSERT_NOTEMPTY(string, failMsg)  if(string[0] == '\0') LQC_faultHandler(failMsg)
-
-typedef void (*faultHndlr_func)(const char* faultMsg);
-typedef void (*recoverHndlr_func)();
-typedef double (*pwrStatus_func)();
-typedef double (*battStatus_func)();
-typedef int (*memStatus_func)();
-typedef int (*ntwkSignal_func)();
+//#define ASSERT(trueResult, failMsg)  if(!(trueResult))  LQC_faultHandler(failMsg)
+//#define ASSERT_NOTEMPTY(string, failMsg)  if(string[0] == '\0') LQC_faultHandler(failMsg)
 
 
 typedef enum networkType_tag
@@ -80,18 +60,23 @@ typedef enum networkType_tag
     networkType_wifi = 1
 } networkType_t;
 
-typedef enum lqcCommMode_tag
-{
-    lqcCommMode_notify = 0,             ///< device stays offline most of the time and connects to send or at prescribed intervals 
-    lqcCommMode_continuous = 1,         ///< device is connected all of the time, but will not block local processing if offline
-    lqcCommMode_required = 2            ///< device is connected all of the time and blocks local processing while disconnected
-} lqcCommMode_t;
 
-typedef enum lqcCommState_tag
+typedef enum lqcConnectode_tag
 {
-    lqcCommState_offline = 0,
-    lqcCommState_connected = 1
-} lqcCommState_t;
+    lqcConnectMode_onDemand = 0,           ///< device stays offline most of the time and connects to send or at prescribed intervals 
+    lqcConnectMode_continuous = 1,         ///< device is connected all of the time, but will not block local processing if offline
+    lqcConnectMode_required = 2            ///< device is connected all of the time and blocks local processing while disconnected
+} lqcConnectMode_t;
+
+
+typedef enum lqcConnectState_tag
+{
+    lqcConnectState_close = 0,
+    lqcConnectState_open = 1,
+    lqcConnectState_connected = 2,
+    lqcConnectState_subscribed = 3
+} lqcConnectState_t;
+
 
 typedef enum lqcEventClass_tag
 {
@@ -106,7 +91,25 @@ typedef enum lqcEventType_tag
     lqcEventType_actnResp = 3
 } lqcEventType_t;
 
-/* Work Schedule 
+typedef enum lqcAppNotification_tag
+{
+    lqcAppNotification_connect = 0,
+    lqcAppNotification_disconnect = 1,
+    lqcAppNotification_connectStatus = 2,
+    lqcAppNotification_hardFault = 99
+} lqcAppNotification_t;
+
+
+typedef void (*lqcAppNotification_func)(lqcAppNotification_t notifType, const char *notifMsg);
+
+typedef double (*pwrStatus_func)();
+typedef double (*battStatus_func)();
+typedef int (*memStatus_func)();
+typedef int (*ntwkSignal_func)();
+
+
+
+/* Work Time 
 ------------------------------------------------------------------------------------------------ */
 
 #define PERIOD_FROM_SECONDS(period)  (period * 1000)
@@ -119,25 +122,25 @@ typedef unsigned long millisTime_t, millisDuration_t;
 /** 
  *  \brief Enum describing the behavior of a workSchedule object.
 */
-typedef enum workScheduleType_tag
+typedef enum wrkTimeType_tag
 {   
-    workScheduleType_periodic = 0,      ///< Periodic workSchedule to reaccure at consitent prescribed intervals
-    workScheduleType_timer = 1          ///< Single shot (1 time) workSchedule timer 
-} workScheduleType_t;
+    wrkTimeType_periodic = 0,      ///< Periodic workSchedule to reaccure at consitent prescribed intervals
+    wrkTimeType_timer = 1          ///< Single shot (1 time) workSchedule timer 
+} wrkTimeType_t;
 
 
 /** 
  *  \brief typedef of workSchedule object to coordinate the timing of application work items.
 */
-typedef struct workSchedule_tag
+typedef struct wrkTime_tag
 {
-    workScheduleType_t schedType;       ///< type of schedule; periodic (recurring), timer (one-shot). Controls reset of enabled
+    wrkTimeType_t schedType;       ///< type of schedule; periodic (recurring), timer (one-shot). Controls reset of enabled
     millisTime_t period;               ///< Time period in milliseconds 
     millisTime_t beginAtMillis;        ///< Tick (system millis()) when the workSchedule timer was created
     millisTime_t lastAtMillis;         ///< Tick (system millis()) when the workSchedule timer last signaled in workSched_doNow()
     uint8_t enabled;                    ///< Reset on timer sched objects, when doNow() (ie: timer is queried) following experation.
     uint8_t userState;                  ///< User definable information about a workSchedule
-} workSchedule_t;
+} wrkTime_t;
 
 
 /** 
@@ -167,7 +170,6 @@ typedef struct workSchedule_tag
 #define LQCACTN_PARAMTYPE_INT    "int"
 #define LQCACTN_PARAMTYPE_FLOAT  "float"
 #define LQCACTN_PARAMTYPE_BOOL   "bool"
-
 
 /* APPLICATION ACTION (function) PARAMETER LISTS
  *
@@ -240,12 +242,13 @@ extern "C"
 #endif
 
 
-void lqc_create(recoverHndlr_func recoverHandler, faultHndlr_func faultHandler, pwrStatus_func pwrStatFunc, battStatus_func battStatFunc, memStatus_func memStatFunc);
+void lqc_create(lqcAppNotification_func appNotificationFunc, pwrStatus_func pwrStatFunc, battStatus_func battStatFunc, memStatus_func memStatFunc);
 void lqc_configTelemetryCallbacks(pwrStatus_func pwrStatFunc, battStatus_func battStatFunc, memStatus_func memStatFunc);
-void lqc_configMsgLifespans(uint16_t telemetryLifespan, uint16_t alertLifespan, uint16_t actionLifespan);
+//void lqc_configMsgLifespans(uint16_t telemetryLifespan, uint16_t alertLifespan, uint16_t actionLifespan);
 
 void lqc_start(const char *hubAddr, const char *deviceId, const char *sasToken, const char *actnKey);
-uint8_t lqc_getState(const char *hostName);
+lqcConnectMode_t lqc_getConnectMode();
+lqcConnectState_t lqc_getConnectState(const char *hostName);
 
 void lqc_doWork();
 void lqc_sendTelemetry(const char *evntName, const char *evntSummary, const char *bodyJson);
@@ -258,11 +261,11 @@ char *lqc_getDeviceId();
 char *lqc_getDeviceName();
 char *lqc_getDeviceShortName();
 
-workSchedule_t workSched_createPeriodic(millisDuration_t intervalMillis);
-workSchedule_t workSched_createTimer(millisDuration_t intervalMillis);
-void workSched_reset(workSchedule_t *schedObj);
-bool workSched_doNow(workSchedule_t *schedObj);
-bool workSched_elapsed(millisTime_t timerVal, millisDuration_t duration);
+wrkTime_t wrkTime_createPeriodic(millisDuration_t intervalMillis);
+wrkTime_t wrkTime_createTimer(millisDuration_t intervalMillis);
+void wrkTime_reset(wrkTime_t *schedObj);
+bool wrkTime_doNow(wrkTime_t *schedObj);
+bool wrkTime_elapsed(millisTime_t timerVal, millisDuration_t duration);
 
 
 // // helpers

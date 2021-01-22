@@ -51,6 +51,7 @@ typedef struct keyValueDict_tag
     char *values[KEYVALUE_DICT_SZ];     ///< Array of property values (as c-strings). Application is responsible for any type conversion.
 } keyValueDict_t;
 
+typedef keyValueDict_t actnParams_t;
 
 typedef enum lqcJsonPropType_tag
 {

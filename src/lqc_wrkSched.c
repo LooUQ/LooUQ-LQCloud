@@ -9,10 +9,10 @@
  * 
  *  \param [in] intervalMillis - Interval period in milliseconds.
  */
-workSchedule_t workSched_createPeriodic(unsigned long intervalMillis)
+wrkTime_t wrkTime_createPeriodic(unsigned long intervalMillis)
 {
-    workSchedule_t schedObj;
-    schedObj.schedType = workScheduleType_periodic;
+    wrkTime_t schedObj;
+    schedObj.schedType = wrkTimeType_periodic;
     schedObj.enabled = true;
     schedObj.userState = 0;
     schedObj.period = intervalMillis;
@@ -27,10 +27,10 @@ workSchedule_t workSched_createPeriodic(unsigned long intervalMillis)
  * 
  *  \param [in] intervalMillis - Interval period in milliseconds.
  */
-workSchedule_t workSched_createTimer(unsigned long intervalMillis)
+wrkTime_t wrkTime_createTimer(unsigned long intervalMillis)
 {
-    workSchedule_t schedObj;
-    schedObj.schedType = workScheduleType_timer;
+    wrkTime_t schedObj;
+    schedObj.schedType = wrkTimeType_timer;
     schedObj.enabled = true;
     schedObj.period = intervalMillis;
     schedObj.beginAtMillis = MILLIS();
@@ -44,7 +44,7 @@ workSchedule_t workSched_createTimer(unsigned long intervalMillis)
  * 
  *  \param [in] schedObj - workSchedule object (struct) to reset.
  */
-void workSched_reset(workSchedule_t *schedObj)
+void wrkTime_reset(wrkTime_t *schedObj)
 {
     schedObj->enabled = true;
     schedObj->lastAtMillis = MILLIS();
@@ -56,14 +56,14 @@ void workSched_reset(workSchedule_t *schedObj)
  * 
  *  \param [in] schedObj - workSchedule object (struct) to test.
  */
-bool workSched_doNow(workSchedule_t *schedObj)
+bool wrkTime_doNow(wrkTime_t *schedObj)
 {
     if (schedObj->enabled)
     {
         unsigned long now = MILLIS();
         if (now - schedObj->lastAtMillis > schedObj->period)
         {
-            schedObj->enabled = (schedObj->schedType != workScheduleType_timer);
+            schedObj->enabled = (schedObj->schedType != wrkTimeType_timer);
             schedObj->lastAtMillis = now;
             return true;
         }
@@ -78,7 +78,7 @@ bool workSched_doNow(workSchedule_t *schedObj)
  *  \param [in] startTime - A point in time (measured by millis)
  *  \param [in] duration - A target elapsed time in milliseconds
  */
-bool workSched_elapsed(millisTime_t startTime, millisDuration_t duration)
+bool wrkTime_elapsed(millisTime_t startTime, millisDuration_t duration)
 {
     return millis() - startTime > duration;
 }
