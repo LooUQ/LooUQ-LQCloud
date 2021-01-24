@@ -36,7 +36,7 @@
 // #include "lqc_wrkTime.h"
 // #include "lqc_json.h"
 
-#define KEYVALUE_DICT_SZ 15
+#define KEYVALUE_DICT_CNT 15
 
 #define LQC_EVENT_NAME_SZ 41
 #define LQC_EVENT_SUMMARY_SZ 81
@@ -45,6 +45,12 @@
 #define ACTION_RESULT_SUCCESS 200
 #define ACTION_RESULT_NOTFOUND 404
 #define ACTION_RESULT_FAILURE 500
+
+#define DEVICESHORTNAME_SZ 12
+#define IOTHUB_URL_SZ 60
+#define IOTHUB_DEVICEID_SZ 40
+#define IOTHUB_SASTOKEN_SZ 164
+#define LQC_APPLKEY_SZ 16
 
 #define MQTTSEND_RETRIES_MAX 20
 #define MQTTSEND_RETRY_WAITMILLIS 1000
@@ -76,6 +82,16 @@ typedef enum lqcConnectState_tag
     lqcConnectState_connected = 2,
     lqcConnectState_subscribed = 3
 } lqcConnectState_t;
+
+
+typedef struct deviceSettings_tag
+{
+    char shortName[DEVICESHORTNAME_SZ];
+    char cloudUrl[IOTHUB_URL_SZ];
+    char deviceId[IOTHUB_DEVICEID_SZ];
+    char sasToken[IOTHUB_SASTOKEN_SZ];
+    char applKey[LQC_APPLKEY_SZ];
+} deviceSettings_t;
 
 
 typedef enum lqcEventClass_tag
