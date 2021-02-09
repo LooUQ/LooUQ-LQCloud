@@ -17,7 +17,7 @@
 lqCloudDevice_t g_lqCloud;              /* GLOBAL LQCLOUD OBJECT */
 
 /* Local (static/non-public) functions */
-static uint8_t mqttConnect();
+static resultCode_t mqttConnect();
 static void mqttDisconnect();
 static void mqttReceiver(const char *topic, const char *topicProps, const char *message);
 static void mqttSenderDoWork();
@@ -32,6 +32,7 @@ static void mqttSenderDoWork();
  */
 void lqc_create(lqcAppNotification_func appNotificationFunc, pwrStatus_func pwrStatFunc, battStatus_func battStatFunc, memStatus_func memStatFunc)
 {
+    strncpy(g_lqCloud.deviceShortName, "LQCloud", LQC_SHORTNAME_SZ);
     g_lqCloud.appNotification_func = appNotificationFunc;
     g_lqCloud.powerStatus_func = pwrStatFunc;
     g_lqCloud.batteryStatus_func = battStatFunc;
@@ -45,44 +46,76 @@ void lqc_create(lqcAppNotification_func appNotificationFunc, pwrStatus_func pwrS
  *	\param[in] ltem1_config The LTE modem gpio pin configuration.
  *  \param[in] funcLevel Determines the LTEm1 functionality to create and start.
  */
-void lqc_start(const char *hubAddr, const char *deviceId, const char *sasToken, const char *actnKey)
+void lqc_setResetCause(lqcResetCause_t rcause)
 {
-    strncpy(g_lqCloud.iothubAddr, hubAddr, IOTHUB_URL_SZ);
-    strncpy(g_lqCloud.deviceId, deviceId, LQCLOUD_DEVICEID_SZ);
-    strncpy(g_lqCloud.sasToken, sasToken, IOTHUB_SASTOKEN_SZ);
-    strncpy(g_lqCloud.actnKey, actnKey, LQCACTN_AKEY_SZ);
+    g_lqCloud.resetCause = rcause;
+}
 
-    uint8_t lqcConnectState = 0;
+
+/**
+ *	\brief Set device shortname, override default "LQC Device".
+ *
+ *	\param[in] shortName The device shortname.
+ */
+void lqc_setDeviceName(const char *shortName)
+{
+    memset(g_lqCloud.deviceShortName, 0, LQC_SHORTNAME_SZ);
+    strncpy(g_lqCloud.deviceShortName, shortName, LQC_SHORTNAME_SZ-1);
+}
+
+
+/**
+ *	\brief Initialize the LTEm1 modem.
+ *
+ *	\param[in] ltem1_config The LTE modem gpio pin configuration.
+ *  \param[in] funcLevel Determines the LTEm1 functionality to create and start.
+ */
+resultCode_t lqc_start(const char *hubAddr, const char *deviceId, const char *sasToken, const char *actnKey)
+{
+    strncpy(g_lqCloud.iothubAddr, hubAddr, LQC_URL_SZ);
+    strncpy(g_lqCloud.deviceId, deviceId, LQC_DEVICEID_SZ);
+    strncpy(g_lqCloud.sasToken, sasToken, LQC_SASTOKEN_SZ);
+    strncpy(g_lqCloud.applKey, actnKey, LQC_APPLKEY_SZ);
+
     uint16_t retries = 0;
     char connectionMsg[80] = {0};
 
-    while (lqcConnectState != lqcConnectState_subscribed )
+    while (g_lqCloud.connectState != lqcConnectState_subscribed )
     {
-        lqcConnectState = mqttConnect();
-        if (lqcConnectState == lqcConnectState_subscribed)
+        resultCode_t rc = mqttConnect();
+        if (g_lqCloud.connectState == lqcConnectState_subscribed)
             break;
+
+        if (rc == RESULT_CODE_FORBIDDEN)
+            return rc;
+
 
         PRINTFC(dbgColor_white, ".");
         snprintf(connectionMsg, 80, "LQC-Start: connect attempt failed, retries=%d", retries);
         LQC_appNotify(lqcAppNotification_connectStatus, connectionMsg);
         delay(1000);
         retries++;
+        if (retries > IOTHUB_CONNECT_RETRIES)
+            return RESULT_CODE_UNAVAILABLE; 
     }
     
     LQC_appNotify(lqcAppNotification_connect, "");
 
     // LQCloud private function in alerts
     LQC_sendDeviceStarted(lqcStartType_cold);
+    return RESULT_CODE_SUCCESS;
 }
+
 
 lqcConnectMode_t lqc_getConnectedMode()
 {
     return g_lqCloud.connectMode;
 }
 
-lqcConnectState_t lqc_getConnectState(const char *hostName)
+
+lqcConnectState_t lqc_getConnectState(const char *hostName, bool forceRead)
 {
-    return mqtt_status(hostName);
+    return (forceRead) ? mqtt_status(hostName) : g_lqCloud.connectState;
 }
 
 
@@ -94,6 +127,7 @@ char *lqc_getDeviceId()
 
 char *lqc_getDeviceShortName()
 {
+
     return &g_lqCloud.deviceShortName;
 }
 
@@ -234,7 +268,7 @@ static void mqttReceiver(const char *topic, const char *topicProps, const char *
     keyValueDict_t mqttProps = lqc_createDictFromQueryString(topicProps);
 
     #ifdef _DEBUG
-    PRINTF(dbgColor_info, "\r**MQTT--MSG** @tick=%d\r", timing_millis());
+    PRINTF(dbgColor_info, "\r**MQTT--MSG** @tick=%d\r", lMillis());
     PRINTF(dbgColor_cyan, "\rt(%d): %s", strlen(topic), topic);
     PRINTF(dbgColor_cyan, "\rp(%d): %s", strlen(topicProps), topicProps);
     PRINTF(dbgColor_cyan, "\rm(%d): %s", strlen(msgBody), msgBody);
@@ -246,14 +280,16 @@ static void mqttReceiver(const char *topic, const char *topicProps, const char *
     PRINTF(0, "\r");
     #endif
 
-    strcpy(g_lqCloud.actnMsgId, lqc_getDictValue("$.mid", mqttProps));
-    strcpy(g_lqCloud.actnName, lqc_getDictValue("evN", mqttProps));
+    lqc_getDictValue("$.mid", mqttProps, g_lqCloud.actnMsgId, IOTHUB_MESSAGEID_SZ);
+    lqc_getDictValue("evN", mqttProps, g_lqCloud.actnName, LQCACTN_NAME_SZ);
+    // strcpy(g_lqCloud.actnMsgId, lqc_getDictValue("$.mid", mqttProps));
+    // strcpy(g_lqCloud.actnName, lqc_getDictValue("evN", mqttProps));
     g_lqCloud.actnResult = RESULT_CODE_NOTFOUND;
     LQC_processActionRequest(g_lqCloud.actnName, mqttProps, msgBody);
 }
 
 
-static uint8_t mqttConnect()
+static resultCode_t mqttConnect()
 {
     char userId[IOTHUB_USERID_SZ];
     char recvTopic[MQTT_TOPIC_NAME_SZ];
@@ -261,16 +297,26 @@ static uint8_t mqttConnect()
     snprintf(userId, IOTHUB_USERID_SZ, MQTT_IOTHUB_USERID_TMPLT, g_lqCloud.iothubAddr, g_lqCloud.deviceId);
     snprintf(recvTopic, MQTT_TOPIC_NAME_SZ, MQTT_IOTHUB_C2D_RECVTOPIC_TMPLT, g_lqCloud.deviceId);
 
-    // recovery returns on full open\connect\subscribe complete, don't exit to fault handler until past
-    uint8_t connectState = 0;
-    if (mqtt_open(g_lqCloud.iothubAddr, IOTHUB_PORT, sslVersion_tls12, mqttVersion_311) == RESULT_CODE_SUCCESS)
-        connectState++;
-    if (connectState == 1 && mqtt_connect(g_lqCloud.deviceId, userId, g_lqCloud.sasToken, mqttSession_cleanStart) == RESULT_CODE_SUCCESS)
-        connectState++;
-    if (connectState == 2 && mqtt_subscribe(recvTopic, mqttQos_1, mqttReceiver) == RESULT_CODE_SUCCESS)
-        connectState++;
+    resultCode_t rc = mqtt_open(g_lqCloud.iothubAddr, IOTHUB_PORT, sslVersion_tls12, mqttVersion_311);
+    if (rc == RESULT_CODE_SUCCESS)
+        g_lqCloud.connectState = lqcConnectState_open;
+    else if (rc >= 502)                                                 //mqtt local error 500 + error_type
+        return RESULT_CODE_CONFLICT;
+    else
+        return rc;
 
-    return connectState;
+    rc = mqtt_connect(g_lqCloud.deviceId, userId, g_lqCloud.sasToken, mqttSession_cleanStart);
+    if (rc == RESULT_CODE_SUCCESS)
+        g_lqCloud.connectState = lqcConnectState_connected;
+    else if (rc == 504 || rc == 505)                                    //mqtt local error 500 + error_type
+        return RESULT_CODE_FORBIDDEN;
+    else
+        return rc;
+
+    rc = mqtt_subscribe(recvTopic, mqttQos_1, mqttReceiver);
+    if (rc == RESULT_CODE_SUCCESS)
+        g_lqCloud.connectState = lqcConnectState_subscribed;
+    return rc;
 }
 
 

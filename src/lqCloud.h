@@ -46,11 +46,11 @@
 #define ACTION_RESULT_NOTFOUND 404
 #define ACTION_RESULT_FAILURE 500
 
-#define DEVICESHORTNAME_SZ 12
-#define IOTHUB_URL_SZ 60
-#define IOTHUB_DEVICEID_SZ 40
-#define IOTHUB_SASTOKEN_SZ 164
-#define LQC_APPLKEY_SZ 16
+#define LQC_SHORTNAME_SZ 13
+#define LQC_DEVICEID_SZ 41
+#define LQC_URL_SZ 49
+#define LQC_SASTOKEN_SZ 171
+#define LQC_APPLKEY_SZ 7
 
 #define MQTTSEND_RETRIES_MAX 20
 #define MQTTSEND_RETRY_WAITMILLIS 1000
@@ -84,14 +84,37 @@ typedef enum lqcConnectState_tag
 } lqcConnectState_t;
 
 
-typedef struct deviceSettings_tag
+
+typedef enum lqcResetCause_tag
 {
-    char shortName[DEVICESHORTNAME_SZ];
-    char cloudUrl[IOTHUB_URL_SZ];
-    char deviceId[IOTHUB_DEVICEID_SZ];
-    char sasToken[IOTHUB_SASTOKEN_SZ];
+    lqcResetCause_powerOn = 1,
+    lqcResetCause_pwrCore = 2,
+    lqcResetCause_pwrPeriph = 4,
+    lqcResetCause_nvm = 8,
+    lqcResetCause_external = 16,
+    lqcResetCause_watchdog = 32,
+    lqcResetCause_system = 64,
+    lqcResetCause_backup = 128
+} lqcResetCause_t;
+
+
+typedef struct lqcDeviceSettings_tag
+{
+    char shortName[LQC_SHORTNAME_SZ];
+    char deviceId[LQC_DEVICEID_SZ];
+    char url[LQC_URL_SZ];
+    char sasToken[LQC_SASTOKEN_SZ];
     char applKey[LQC_APPLKEY_SZ];
-} deviceSettings_t;
+} lqcDeviceSettings_t;
+
+
+// typedef struct deviceSettings_tag
+// {
+//     char shortName[DEVICESHORTNAME_SZ];
+//     char cloudUrl[IOTHUB_URL_SZ];
+//     char sasToken[IOTHUB_SASTOKEN_SZ];
+//     char applKey[LQC_APPLKEY_SZ];
+// } deviceSettings_t;
 
 
 typedef enum lqcEventClass_tag
@@ -132,7 +155,7 @@ typedef int (*ntwkSignal_func)();
 #define PERIOD_FROM_MINUTES(period)  (period * 1000 * 60)
 #define PERIOD_FROM_HOURS(period)  (period * 1000 * 60 * 60)
 
-typedef unsigned long millisTime_t, millisDuration_t;
+typedef unsigned long millisTime_t, millisDuration_t;   // aka uint32_t 
 
 
 /** 
@@ -175,7 +198,6 @@ typedef struct wrkTime_tag
 #define LQCACTN_PARAMS_CNT 4        ///< Max parameters in application action, change to increase/decrease
 #define LQCACTN_CNT 6               ///< number of application actions, change to needs (lower to save memory)
 #define LQCACTN_NAME_SZ 20          ///< Max length of an action name
-#define LQCACTN_AKEY_SZ 20          ///< Max length of an action key (optional)
 #define LQCACTN_PARAMLIST_SZ 80     ///< Max length of an action parameter list, LQ Cloud registered parameter names/types
 
 /* To be called in application space for each action to make accessible via LooUQ Cloud
@@ -260,11 +282,13 @@ extern "C"
 
 void lqc_create(lqcAppNotification_func appNotificationFunc, pwrStatus_func pwrStatFunc, battStatus_func battStatFunc, memStatus_func memStatFunc);
 void lqc_configTelemetryCallbacks(pwrStatus_func pwrStatFunc, battStatus_func battStatFunc, memStatus_func memStatFunc);
+void lqc_setDeviceName(const char *shortName);
+void lqc_setResetCause(lqcResetCause_t rcause);
 //void lqc_configMsgLifespans(uint16_t telemetryLifespan, uint16_t alertLifespan, uint16_t actionLifespan);
 
-void lqc_start(const char *hubAddr, const char *deviceId, const char *sasToken, const char *actnKey);
+resultCode_t lqc_start(const char *hubAddr, const char *deviceId, const char *sasToken, const char *actnKey);
 lqcConnectMode_t lqc_getConnectMode();
-lqcConnectState_t lqc_getConnectState(const char *hostName);
+lqcConnectState_t lqc_getConnectState(const char *hostName, bool forceRead);
 
 void lqc_doWork();
 void lqc_sendTelemetry(const char *evntName, const char *evntSummary, const char *bodyJson);
@@ -285,7 +309,7 @@ bool wrkTime_elapsed(millisTime_t timerVal, millisDuration_t duration);
 
 
 // // helpers
-// keyValueDict_t lqc_parseQueryStringDict(char *dictSrc);
+keyValueDict_t lqc_parseQueryStringDict(char *dictSrc);
 // char *lqc_getActionParamValue(const char *paramName, keyValueDict_t actnParams);
 // lqcJsonProp_t lqc_getJsonProp(const char *jsonSrc, const char *propName);
 

@@ -76,7 +76,9 @@ bool wrkTime_doNow(wrkTime_t *schedObj)
  *	\brief Simple helper for testing a start time to see if a duration has been satisfied.
  * 
  *  \param [in] startTime - A point in time (measured by millis)
- *  \param [in] duration - A target elapsed time in milliseconds
+ *  \param [in] reqdDuration - A target elapsed time in milliseconds
+ * 
+ *  \returns true if the reqdDuration has been reached
  */
 bool wrkTime_elapsed(millisTime_t startTime, millisDuration_t reqdDuration)
 {

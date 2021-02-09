@@ -85,7 +85,8 @@ void LQC_sendDeviceStarted(lqcStartType_t startType)
 
     // summary is a simple C-string, body is a string formatted as a JSON object
     snprintf(summary, LQC_EVENT_SUMMARY_SZ, "DeviceStart:%s %s", g_lqCloud.deviceId, restartDescr);
-    snprintf(body, LQC_EVENT_BODY_SZ, "{\"dvcInfo\":{\"dId\":\"%s\",\"codeVer\":\"LooUQ-CloudMQTTv1.1\",\"msgVer\":\"1.0\"},\"ntwkInfo\":{\"ntwkType\":\"%s\",\"ntwkDetail\":\"%s\"}}", g_lqCloud.deviceId, g_lqCloud.networkType, g_lqCloud.networkName);
+    snprintf(body, LQC_EVENT_BODY_SZ, "{\"dvcInfo\":{\"dId\":\"%s\",\"rCause\":%d,\"codeVer\":\"LooUQ-CloudMQTTv1.1\",\"msgVer\":\"1.0\"},\"ntwkInfo\":{\"ntwkType\":\"%s\",\"ntwkDetail\":\"%s\"}}", \
+        g_lqCloud.deviceId, g_lqCloud.resetCause, g_lqCloud.networkType, g_lqCloud.networkName);
     sendAlert(lqcEventClass_lqcloud, "dStart", summary, body);
 }
 

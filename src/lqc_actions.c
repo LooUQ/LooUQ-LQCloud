@@ -96,15 +96,18 @@ void lqc_sendActionResponse(uint16_t resultCode, const char *bodyJson)
  */
 void LQC_processActionRequest(const char *actnName, keyValueDict_t mqttProps, const char *msgBody)
 {
-    char *actnKey = lqc_getDictValue("aKey", mqttProps);
+    char applKey[LQC_APPLKEY_SZ] = {0};
+    char eventClass[8] = {0};
 
-    if (strlen(actnKey) == 0 || strcmp(actnKey, g_lqCloud.actnKey) == 0)
+    lqc_getDictValue("aKey", mqttProps, applKey, LQC_APPLKEY_SZ);
+
+    if (strlen(g_lqCloud.applKey) == 0 || strcmp(applKey, g_lqCloud.applKey) == 0)
     {
-        char *eventClass = lqc_getDictValue("evC", mqttProps);
+        lqc_getDictValue("evC", mqttProps, eventClass, 8);
 
         if (strcmp(eventClass, "appl") == 0)
         {
-            tryAsApplAction(actnName, actnKey, msgBody);
+            tryAsApplAction(actnName, applKey, msgBody);
         }
         else if (strcmp(eventClass, "lqc") == 0 && strcmp(actnName, "getactn") == 0)    // getactninfo: get action info
         {

@@ -62,20 +62,50 @@ keyValueDict_t lqc_createDictFromQueryString(char *dictSrc)
  * 
  *  \return Struct with pointer arrays to the properties (name/value)
 */
-char *lqc_getDictValue(const char *key, keyValueDict_t dict)
+void lqc_getDictValue(const char *key, keyValueDict_t dict, char *value, uint8_t valSz)
 {
     if (dict.keys[0] == NULL || dict.keys[0][0] == '\0')        // underlying char array is invalid
-        return NULL;
+        return;
 
     for (size_t i = 0; i < dict.count; i++)
     {
         if (strcmp(dict.keys[i], key) == 0)
-            return dict.values[i];
+        {
+            strncpy(value, dict.values[i], valSz-1);
+            break;
+        }
     }
-
-    return NULL;
 }
 
+
+/**
+ *  \brief Scans the source string for fromChr and replaces with toChr. Usefull for substitution of special char in query strings.
+ * 
+ *  \param [in\out] srcStr - Char pointer to the c-string containing required substitutions 
+ *  \param [in] fromChr - Char value to replace in src 
+ *  \param [in] toChr - Char value to put in place of fromChr 
+ * 
+ *  \return Number of substitutions made
+*/
+uint16_t lqc_strReplace(char *srcStr, char fromChr, char toChr)
+{
+    char *opPtr = srcStr;
+    uint16_t replacements = 0;
+
+    if (fromChr == 0 || toChr == 0 || fromChr == toChr)
+        return 0;
+
+    while(*opPtr != 0)
+    {
+        if (*opPtr == fromChr)
+        {
+            *opPtr = toChr;
+            replacements++;
+        }
+        opPtr++;
+    }
+    return replacements;
+}
 
 
 /**
