@@ -102,7 +102,7 @@ resultCode_t lqc_start(const char *hubAddr, const char *deviceId, const char *sa
     LQC_appNotify(lqcAppNotification_connect, "");
 
     // LQCloud private function in alerts
-    LQC_sendDeviceStarted(lqcStartType_cold);
+    LQC_sendDeviceStarted(g_lqCloud.resetCause);
     return RESULT_CODE_SUCCESS;
 }
 

@@ -74,19 +74,18 @@ void lqc_sendAlert(const char *alrtName, const char *alrtSummary, const char *bo
  * 
  *  \param [in] startType - Enum describing the device start conditions.
  */
-void LQC_sendDeviceStarted(lqcStartType_t startType)
+void LQC_sendDeviceStarted(uint8_t rCause)
 {
     char summary[LQC_EVENT_SUMMARY_SZ] = {0};
     char body[LQC_EVENT_BODY_SZ] = {0};
     char restartDescr[18] = {0};
 
-    if (startType == lqcStartType_recover)
-        strncpy(restartDescr, "(Comm.Recover)", 18);
-
     // summary is a simple C-string, body is a string formatted as a JSON object
-    snprintf(summary, LQC_EVENT_SUMMARY_SZ, "DeviceStart:%s %s", g_lqCloud.deviceId, restartDescr);
+    snprintf(summary, LQC_EVENT_SUMMARY_SZ, "DeviceStart:%s (%d)",
+        g_lqCloud.deviceId, rCause);
     snprintf(body, LQC_EVENT_BODY_SZ, "{\"dvcInfo\":{\"dId\":\"%s\",\"rCause\":%d,\"codeVer\":\"LooUQ-CloudMQTTv1.1\",\"msgVer\":\"1.0\"},\"ntwkInfo\":{\"ntwkType\":\"%s\",\"ntwkDetail\":\"%s\"}}", \
         g_lqCloud.deviceId, g_lqCloud.resetCause, g_lqCloud.networkType, g_lqCloud.networkName);
+
     sendAlert(lqcEventClass_lqcloud, "dStart", summary, body);
 }
 

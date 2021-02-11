@@ -62,22 +62,14 @@ bool lqc_regApplAction(const char *actnName, lqc_ActnFunc_t actnFunc, const char
  *	\param [in] resultCode - HTTP style status result, 200 is success, etc.
  *	\param [in] body - Char pointer to body (message) response from the appl action. Can be NULL.
  */
-void lqc_sendActionResponse(uint16_t resultCode, const char *bodyJson)
+void lqc_sendActionResponse(uint16_t resultCd, const char *bodyJson)
 {
     uint16_t bodySz = strlen(bodyJson);
-    char bodyRepair[LQC_EVENT_BODY_SZ];
 
-    if (bodySz > 0 && bodyJson[0] == '{' || bodyJson[bodySz-1] == '}')
-        actionResponse(lqcEventClass_application, g_lqCloud.actnName, resultCode, bodyJson);
-
-    else if (bodySz == 0)
-        actionResponse(lqcEventClass_application, g_lqCloud.actnName, resultCode, "{}");
-
+    if (bodySz == 0)                                                                        // empty, send empty JSON object
+        actionResponse(lqcEventClass_application, g_lqCloud.actnName, resultCd, "{}");
     else
-    {
-        snprintf(bodyRepair, LQC_EVENT_BODY_SZ, "{%s,\"applError\":\"jsonInvalid\"}", bodyJson);
-        actionResponse(lqcEventClass_application, g_lqCloud.actnName, resultCode, "{}");
-    }
+        actionResponse(lqcEventClass_application, g_lqCloud.actnName, resultCd, bodyJson);
 }
 
 #pragma endregion

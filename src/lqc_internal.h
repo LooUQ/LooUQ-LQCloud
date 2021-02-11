@@ -158,7 +158,7 @@ void LQC_faultHandler(const char *faultMsg);
 void LQC_appNotify(lqcAppNotification_t notificationType, const char *notificationMsg);
 
 // alerts
-void LQC_sendDeviceStarted(lqcStartType_t startType);
+void LQC_sendDeviceStarted(uint8_t startType);
 
 // actions
 void LQC_processActionRequest(const char *actnName, keyValueDict_t actnParams, const char *msgBody);
