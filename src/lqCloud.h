@@ -84,6 +84,13 @@ typedef enum lqcConnectState_tag
 } lqcConnectState_t;
 
 
+typedef enum lqcBatteryStatus_tag
+{
+    lqcBatteryStatus_good = 0,
+    lqcBatteryStatus_yellow = 1,
+    lqcBatteryStatus_red = 2
+}  lqcBatteryStatus_t;
+
 
 typedef enum lqcResetCause_tag
 {
@@ -98,23 +105,14 @@ typedef enum lqcResetCause_tag
 } lqcResetCause_t;
 
 
-typedef struct lqcDeviceSettings_tag
+typedef struct lqcDeviceConfig_tag
 {
     char shortName[LQC_SHORTNAME_SZ];
     char deviceId[LQC_DEVICEID_SZ];
     char url[LQC_URL_SZ];
     char sasToken[LQC_SASTOKEN_SZ];
     char applKey[LQC_APPLKEY_SZ];
-} lqcDeviceSettings_t;
-
-
-// typedef struct deviceSettings_tag
-// {
-//     char shortName[DEVICESHORTNAME_SZ];
-//     char cloudUrl[IOTHUB_URL_SZ];
-//     char sasToken[IOTHUB_SASTOKEN_SZ];
-//     char applKey[LQC_APPLKEY_SZ];
-// } deviceSettings_t;
+} lqcDeviceConfig_t;
 
 
 typedef enum lqcEventClass_tag
@@ -122,6 +120,7 @@ typedef enum lqcEventClass_tag
     lqcEventClass_lqcloud = 0,
     lqcEventClass_application = 1
 } lqcEventClass_t;
+
 
 typedef enum lqcEventType_tag
 {
@@ -141,8 +140,8 @@ typedef enum lqcAppNotification_tag
 
 typedef void (*lqcAppNotification_func)(lqcAppNotification_t notifType, const char *notifMsg);
 
-typedef double (*pwrStatus_func)();
-typedef double (*battStatus_func)();
+typedef bool (*pwrStatus_func)();
+typedef lqcBatteryStatus_t (*battStatus_func)();
 typedef int (*memStatus_func)();
 typedef int (*ntwkSignal_func)();
 
@@ -173,12 +172,12 @@ typedef enum wrkTimeType_tag
 */
 typedef struct wrkTime_tag
 {
-    wrkTimeType_t schedType;       ///< type of schedule; periodic (recurring), timer (one-shot). Controls reset of enabled
-    millisTime_t period;               ///< Time period in milliseconds 
-    millisTime_t beginAtMillis;        ///< Tick (system millis()) when the workSchedule timer was created
-    millisTime_t lastAtMillis;         ///< Tick (system millis()) when the workSchedule timer last signaled in workSched_doNow()
-    uint8_t enabled;                    ///< Reset on timer sched objects, when doNow() (ie: timer is queried) following experation.
-    uint8_t userState;                  ///< User definable information about a workSchedule
+    //wrkTimeType_t schedType;        ///< type of schedule; periodic (recurring), timer (one-shot). Controls reset of enabled
+    millisTime_t period;            ///< Time period in milliseconds 
+    //millisTime_t beginAtMillis;     ///< Tick (system millis()) when the workSchedule timer was created
+    millisTime_t lastAtMillis;      ///< Tick (system millis()) when the workSchedule timer last signaled in workSched_doNow()
+    uint8_t enabled;                ///< Reset on timer sched objects, when doNow() (ie: timer is queried) following experation.
+    uint8_t userState;              ///< User definable information about a workSchedule
 } wrkTime_t;
 
 
@@ -196,7 +195,7 @@ typedef struct wrkTime_tag
  * ============================================================================================= */
 
 #define LQCACTN_PARAMS_CNT 4        ///< Max parameters in application action, change to increase/decrease
-#define LQCACTN_CNT 6               ///< number of application actions, change to needs (lower to save memory)
+#define LQCACTN_CNT 12              ///< number of application actions, change to needs (lower to save memory)
 #define LQCACTN_NAME_SZ 20          ///< Max length of an action name
 #define LQCACTN_PARAMLIST_SZ 80     ///< Max length of an action parameter list, LQ Cloud registered parameter names/types
 
@@ -301,11 +300,13 @@ char *lqc_getDeviceId();
 char *lqc_getDeviceName();
 char *lqc_getDeviceShortName();
 
-wrkTime_t wrkTime_createPeriodic(millisDuration_t intervalMillis);
-wrkTime_t wrkTime_createTimer(millisDuration_t intervalMillis);
-void wrkTime_reset(wrkTime_t *schedObj);
+wrkTime_t wrkTime_create(millisDuration_t intervalMillis);
+//wrkTime_t wrkTime_createTimer(millisDuration_t intervalMillis);
+void wrkTime_start(wrkTime_t *schedObj);
+void wrkTime_stop(wrkTime_t *schedObj);
+bool wrkTime_isRunning(wrkTime_t *schedObj);
 bool wrkTime_doNow(wrkTime_t *schedObj);
-bool wrkTime_elapsed(millisTime_t timerVal, millisDuration_t duration);
+bool wrkTime_isElapsed(millisTime_t timerVal, millisDuration_t duration);
 
 
 // // helpers

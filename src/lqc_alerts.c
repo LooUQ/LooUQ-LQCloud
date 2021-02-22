@@ -109,7 +109,7 @@ static void sendAlert(lqcEventClass_t alrtClass, const char *alrtName, const cha
         snprintf(mqttSummary, LQC_EVENT_SUMMARY_SZ, "\"descr\": \"%s\",", alrtSummary);
 
     // "devices/%s/messages/events/mId=~%d&mV=1.0&evT=alrt&evC=%s&evN=%s"
-    snprintf(mqttTopic, MQTT_TOPIC_SZ, MQTT_MSG_D2CTOPIC_ALERT_TMPLT, g_lqCloud.deviceId, g_lqCloud.msgNm, eventClass, mqttName);
+    snprintf(mqttTopic, MQTT_TOPIC_SZ, MQTT_MSG_D2CTOPIC_ALERT_TMPLT, g_lqCloud.deviceId, g_lqCloud.msgNm++, eventClass, mqttName);
     snprintf(mqttBody, MQTT_MESSAGE_SZ, "{%s\"alert\": %s}", mqttSummary, bodyJson);
     LQC_mqttSender("alrt", mqttSummary, mqttTopic, mqttBody);
 }

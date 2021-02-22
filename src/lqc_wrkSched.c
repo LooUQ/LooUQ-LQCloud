@@ -9,33 +9,45 @@
  * 
  *  \param [in] intervalMillis - Interval period in milliseconds.
  */
-wrkTime_t wrkTime_createPeriodic(unsigned long intervalMillis)
+wrkTime_t wrkTime_create(unsigned long intervalMillis)
 {
     wrkTime_t schedObj;
-    schedObj.schedType = wrkTimeType_periodic;
+//    schedObj.schedType = wrkTimeType_periodic;
     schedObj.enabled = true;
     schedObj.userState = 0;
     schedObj.period = intervalMillis;
-    schedObj.beginAtMillis = MILLIS();
-    schedObj.lastAtMillis = schedObj.beginAtMillis;
+    // schedObj.beginAtMillis = MILLIS();
+    schedObj.lastAtMillis = MILLIS();
     return schedObj;
 }
 
 
+// /**
+//  *	\brief Initialize a workSchedule object (struct) to track one time duration expired.
+//  * 
+//  *  \param [in] intervalMillis - Interval period in milliseconds.
+//  */
+// wrkTime_t wrkTime_createTimer(unsigned long intervalMillis)
+// {
+//     wrkTime_t schedObj;
+//     schedObj.schedType = wrkTimeType_timer;
+//     schedObj.enabled = true;
+//     schedObj.period = intervalMillis;
+//     schedObj.beginAtMillis = MILLIS();
+//     schedObj.lastAtMillis = schedObj.beginAtMillis;
+//     return schedObj;
+// }
+
+
 /**
- *	\brief Initialize a workSchedule object (struct) to track one time duration expired.
+ *	\brief Reset a workSchedule object's internal timekeeping to now. If invoked mid-interval, sets the next event to a full-interval duration.
  * 
- *  \param [in] intervalMillis - Interval period in milliseconds.
+ *  \param [in] schedObj - workSchedule object (struct) to reset.
  */
-wrkTime_t wrkTime_createTimer(unsigned long intervalMillis)
+void wrkTime_start(wrkTime_t *schedObj)
 {
-    wrkTime_t schedObj;
-    schedObj.schedType = wrkTimeType_timer;
-    schedObj.enabled = true;
-    schedObj.period = intervalMillis;
-    schedObj.beginAtMillis = MILLIS();
-    schedObj.lastAtMillis = schedObj.beginAtMillis;
-    return schedObj;
+    schedObj->enabled = true;
+    schedObj->lastAtMillis = MILLIS();
 }
 
 
@@ -44,10 +56,23 @@ wrkTime_t wrkTime_createTimer(unsigned long intervalMillis)
  * 
  *  \param [in] schedObj - workSchedule object (struct) to reset.
  */
-void wrkTime_reset(wrkTime_t *schedObj)
+void wrkTime_stop(wrkTime_t *schedObj)
 {
-    schedObj->enabled = true;
-    schedObj->lastAtMillis = MILLIS();
+    schedObj->enabled = false;
+    schedObj->lastAtMillis = 0;
+}
+
+
+/**
+ *	\brief Query wrkTime object to see if running.
+ * 
+ *  \param [in] schedObj - workSchedule object (struct) to reset.
+ * 
+ *  \return true if timer running
+ */
+bool wrkTime_isRunning(wrkTime_t *schedObj)
+{
+    return schedObj->enabled;
 }
 
 
@@ -63,7 +88,7 @@ bool wrkTime_doNow(wrkTime_t *schedObj)
         unsigned long now = MILLIS();
         if (now - schedObj->lastAtMillis > schedObj->period)
         {
-            schedObj->enabled = (schedObj->schedType != wrkTimeType_timer);
+            // schedObj->enabled = (schedObj->schedType != wrkTimeType_timer);
             schedObj->lastAtMillis = now;
             return true;
         }
@@ -80,7 +105,7 @@ bool wrkTime_doNow(wrkTime_t *schedObj)
  * 
  *  \returns true if the reqdDuration has been reached
  */
-bool wrkTime_elapsed(millisTime_t startTime, millisDuration_t reqdDuration)
+bool wrkTime_isElapsed(millisTime_t startTime, millisDuration_t reqdDuration)
 {
     return millis() - startTime > reqdDuration;
 }

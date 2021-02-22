@@ -140,7 +140,7 @@ void lqc_doWork()
     ltem1_doWork();
     mqttSenderDoWork();
 
-    if (g_lqCloud.connectMode == lqcConnectMode_onDemand && wrkTime_elapsed(g_lqCloud.sendLastAt, g_lqCloud.onDemandTimeoutMinutes))
+    if (g_lqCloud.connectMode == lqcConnectMode_onDemand && wrkTime_isElapsed(g_lqCloud.sendLastAt, g_lqCloud.onDemandTimeoutMinutes))
     {
         // if ConnectionMode == onDemand, cut connection if it has be at least timeout period since last send
         // tobebuilt
