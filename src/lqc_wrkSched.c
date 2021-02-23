@@ -103,10 +103,10 @@ bool wrkTime_doNow(wrkTime_t *schedObj)
  *  \param [in] startTime - A point in time (measured by millis)
  *  \param [in] reqdDuration - A target elapsed time in milliseconds
  * 
- *  \returns true if the reqdDuration has been reached
+ *  \returns true if the reqdDuration has been reached, returns false if the startTime has not been set (=0)
  */
 bool wrkTime_isElapsed(millisTime_t startTime, millisDuration_t reqdDuration)
 {
-    return millis() - startTime > reqdDuration;
+    return (startTime) ? millis() - startTime > reqdDuration : false;
 }
 
