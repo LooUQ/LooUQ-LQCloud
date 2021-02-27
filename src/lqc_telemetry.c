@@ -21,7 +21,7 @@ extern lqCloudDevice_t g_lqCloud;
  *  \param [in] eventValue - Summary string to include with the telemetry data body.
  *  \param [in] body - Message body, JSON formatted
  */
-void lqc_sendTelemetry(const char *evntName, const char *evntSummary, const char *bodyJson)
+bool lqc_sendTelemetry(const char *evntName, const char *evntSummary, const char *bodyJson)
 {
     char mqttName[LQC_EVENT_NAME_SZ] = {0};
     char mqttSummary[LQC_EVENT_SUMMARY_SZ] = {0};
@@ -39,24 +39,24 @@ void lqc_sendTelemetry(const char *evntName, const char *evntSummary, const char
         snprintf(mqttSummary, LQC_EVENT_SUMMARY_SZ, "\"descr\": \"%s\",", evntSummary);
 
     // telemetry options, get device status using registered service functions
-    if (g_lqCloud.powerStatus_func)
+    if (g_lqCloud.powerStatusCB)
     {
         char optProp[LQC_DEVICESTATUS_PROPSZ];
-        double pwrStat = g_lqCloud.powerStatus_func();
+        double pwrStat = g_lqCloud.powerStatusCB();
         snprintf(optProp, LQC_DEVICESTATUS_PROPSZ, "\"pwrV\": %.2f,", pwrStat);
         strcat(dStatusBuild, optProp);
     }
-    if (g_lqCloud.batteryStatus_func)
+    if (g_lqCloud.batteryStatusCB)
     {
         char optProp[LQC_DEVICESTATUS_PROPSZ];
-        double battStat = g_lqCloud.batteryStatus_func();
-        snprintf(optProp, LQC_DEVICESTATUS_PROPSZ, "\"battV\":%.2f,", battStat);
+        double battStat = g_lqCloud.batteryStatusCB();
+        snprintf(optProp, LQC_DEVICESTATUS_PROPSZ, "\"battStatus\":%d,", battStat);
         strcat(dStatusBuild, optProp);
     }
-    if (g_lqCloud.memoryStatus_func)
+    if (g_lqCloud.memoryStatusCB)
     {
         char optProp[LQC_DEVICESTATUS_PROPSZ];
-        int memStat = g_lqCloud.memoryStatus_func();
+        int memStat = g_lqCloud.memoryStatusCB();
         snprintf(optProp, LQC_DEVICESTATUS_PROPSZ, "\"memFree\":%d,", memStat);
         strcat(dStatusBuild, optProp);
     }
@@ -70,6 +70,6 @@ void lqc_sendTelemetry(const char *evntName, const char *evntSummary, const char
     // "devices/%s/messages/events/mId=~%d&mV=1.0&evT=tdat&evC=%s&evN=%s"
     snprintf(mqttTopic, MQTT_TOPIC_SZ, MQTT_MSG_D2CTOPIC_TELEMETRY_TMPLT, g_lqCloud.deviceId, g_lqCloud.msgNm++, "appl", mqttName);
     snprintf(mqttBody, MQTT_MESSAGE_SZ, "{%s\"telemetry\": %s%s}", mqttSummary, bodyJson, deviceStatus);
-    LQC_mqttSender("tdat", evntSummary, mqttTopic, mqttBody);
+    return LQC_mqttTrySend(mqttTopic, mqttBody, false);
 }
 

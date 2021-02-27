@@ -15,7 +15,7 @@ extern lqCloudDevice_t g_lqCloud;
 
 /* Static Local Functions
 ------------------------------------------------------------------------------------------------ */
-static void sendAlert(lqcEventClass_t evntClass, const char *evntName, const char *evntSummary, const char *message);
+static bool sendAlert(lqcEventClass_t evntClass, const char *evntName, const char *evntSummary, const char *message);
 
 
 /* LooUQ Cloud Alerts
@@ -56,9 +56,9 @@ static void sendAlert(lqcEventClass_t evntClass, const char *evntName, const cha
  *  \param [in] evntSummary - Brief description of the event raising alert.
  *  \param [in] message - JSON formatted message body: must be JSON Property, JSON Object, or JSON Array
  */
-void lqc_sendAlert(const char *alrtName, const char *alrtSummary, const char *bodyJson)
+bool lqc_sendAlert(const char *alrtName, const char *alrtSummary, const char *bodyJson)
 {
-    sendAlert(lqcEventClass_application, alrtName, alrtSummary, bodyJson);
+    return sendAlert(lqcEventClass_application, alrtName, alrtSummary, bodyJson);
 }
 
 
@@ -84,13 +84,13 @@ void LQC_sendDeviceStarted(uint8_t rCause)
     snprintf(summary, LQC_EVENT_SUMMARY_SZ, "DeviceStart:%s (%d)",
         g_lqCloud.deviceId, rCause);
     snprintf(body, LQC_EVENT_BODY_SZ, "{\"dvcInfo\":{\"dId\":\"%s\",\"rCause\":%d,\"codeVer\":\"LooUQ-CloudMQTTv1.1\",\"msgVer\":\"1.0\"},\"ntwkInfo\":{\"ntwkType\":\"%s\",\"ntwkDetail\":\"%s\"}}", \
-        g_lqCloud.deviceId, g_lqCloud.resetCause, g_lqCloud.networkType, g_lqCloud.networkName);
+        g_lqCloud.deviceId, g_lqCloud.diagnostics.resetCause, g_lqCloud.networkType, g_lqCloud.networkName);
 
     sendAlert(lqcEventClass_lqcloud, "dStart", summary, body);
 }
 
 
-static void sendAlert(lqcEventClass_t alrtClass, const char *alrtName, const char *alrtSummary, const char *bodyJson)
+static bool sendAlert(lqcEventClass_t alrtClass, const char *alrtName, const char *alrtSummary, const char *bodyJson)
 {
     char mqttName[LQC_EVENT_NAME_SZ] = {0};
     char mqttSummary[LQC_EVENT_SUMMARY_SZ] = {0};
@@ -111,7 +111,7 @@ static void sendAlert(lqcEventClass_t alrtClass, const char *alrtName, const cha
     // "devices/%s/messages/events/mId=~%d&mV=1.0&evT=alrt&evC=%s&evN=%s"
     snprintf(mqttTopic, MQTT_TOPIC_SZ, MQTT_MSG_D2CTOPIC_ALERT_TMPLT, g_lqCloud.deviceId, g_lqCloud.msgNm++, eventClass, mqttName);
     snprintf(mqttBody, MQTT_MESSAGE_SZ, "{%s\"alert\": %s}", mqttSummary, bodyJson);
-    LQC_mqttSender("alrt", mqttSummary, mqttTopic, mqttBody);
+    return LQC_mqttTrySend(mqttTopic, mqttBody, false);
 }
 
 

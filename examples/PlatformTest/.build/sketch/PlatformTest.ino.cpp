@@ -1,3 +1,5 @@
+#include <Arduino.h>
+#line 1 "c:\\Users\\GregTerrell\\Documents\\CodeDev\\Arduino\\libraries\\LooUQ-LQCloud\\examples\\PlatformTest\\PlatformTest.ino"
 /******************************************************************************
  *  \file LQCloud-PlatformTest.ino
  *  \author Greg Terrell
@@ -59,6 +61,27 @@ Adafruit_NeoPixel neo(1, NEO_PIN, NEO_GRB + NEO_KHZ800);
 /* setup() 
  * --------------------------------------------------------------------------------------------- */
 
+#line 62 "c:\\Users\\GregTerrell\\Documents\\CodeDev\\Arduino\\libraries\\LooUQ-LQCloud\\examples\\PlatformTest\\PlatformTest.ino"
+void setup();
+#line 126 "c:\\Users\\GregTerrell\\Documents\\CodeDev\\Arduino\\libraries\\LooUQ-LQCloud\\examples\\PlatformTest\\PlatformTest.ino"
+void loop();
+#line 177 "c:\\Users\\GregTerrell\\Documents\\CodeDev\\Arduino\\libraries\\LooUQ-LQCloud\\examples\\PlatformTest\\PlatformTest.ino"
+bool networkStart();
+#line 211 "c:\\Users\\GregTerrell\\Documents\\CodeDev\\Arduino\\libraries\\LooUQ-LQCloud\\examples\\PlatformTest\\PlatformTest.ino"
+void networkStop();
+#line 220 "c:\\Users\\GregTerrell\\Documents\\CodeDev\\Arduino\\libraries\\LooUQ-LQCloud\\examples\\PlatformTest\\PlatformTest.ino"
+void notificationHandler(notificationType_t notifType, const char *notifMsg);
+#line 280 "c:\\Users\\GregTerrell\\Documents\\CodeDev\\Arduino\\libraries\\LooUQ-LQCloud\\examples\\PlatformTest\\PlatformTest.ino"
+batteryWarning_t getBatteryStatus();
+#line 310 "c:\\Users\\GregTerrell\\Documents\\CodeDev\\Arduino\\libraries\\LooUQ-LQCloud\\examples\\PlatformTest\\PlatformTest.ino"
+int getFreeMemory();
+#line 329 "c:\\Users\\GregTerrell\\Documents\\CodeDev\\Arduino\\libraries\\LooUQ-LQCloud\\examples\\PlatformTest\\PlatformTest.ino"
+static void getStatus(keyValueDict_t params);
+#line 346 "c:\\Users\\GregTerrell\\Documents\\CodeDev\\Arduino\\libraries\\LooUQ-LQCloud\\examples\\PlatformTest\\PlatformTest.ino"
+static void setLedState(keyValueDict_t params);
+#line 442 "c:\\Users\\GregTerrell\\Documents\\CodeDev\\Arduino\\libraries\\LooUQ-LQCloud\\examples\\PlatformTest\\PlatformTest.ino"
+void registerActions();
+#line 62 "c:\\Users\\GregTerrell\\Documents\\CodeDev\\Arduino\\libraries\\LooUQ-LQCloud\\examples\\PlatformTest\\PlatformTest.ino"
 void setup() {
     #ifdef USE_SERIAL
         Serial.begin(115200);
@@ -449,5 +472,6 @@ void registerActions()
     // REGISTER_ACTION("get-stat", getStatus, getStatus_params);
     // REGISTER_ACTION("set-ase", setAseState, setAseState_params);
 }
+
 
 

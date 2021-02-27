@@ -12,31 +12,11 @@
 wrkTime_t wrkTime_create(unsigned long intervalMillis)
 {
     wrkTime_t schedObj;
-//    schedObj.schedType = wrkTimeType_periodic;
     schedObj.enabled = true;
-    schedObj.userState = 0;
     schedObj.period = intervalMillis;
-    // schedObj.beginAtMillis = MILLIS();
     schedObj.lastAtMillis = MILLIS();
     return schedObj;
 }
-
-
-// /**
-//  *	\brief Initialize a workSchedule object (struct) to track one time duration expired.
-//  * 
-//  *  \param [in] intervalMillis - Interval period in milliseconds.
-//  */
-// wrkTime_t wrkTime_createTimer(unsigned long intervalMillis)
-// {
-//     wrkTime_t schedObj;
-//     schedObj.schedType = wrkTimeType_timer;
-//     schedObj.enabled = true;
-//     schedObj.period = intervalMillis;
-//     schedObj.beginAtMillis = MILLIS();
-//     schedObj.lastAtMillis = schedObj.beginAtMillis;
-//     return schedObj;
-// }
 
 
 /**

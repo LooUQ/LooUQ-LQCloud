@@ -39,11 +39,15 @@
 #define IOTHUB_SASTOKEN_SZ 200
 #define IOTHUB_MESSAGEID_SZ 38
 #define IOTHUB_PORT 8883
-#define IOTHUB_CONNECT_RETRIES 5
+#define IOTHUB_CONNECT_RETRIES 12
 // #define LQCLOUD_DEVICEID_SZ 40
 // #define LQCLOUD_DVCSHORTNAME_SZ 12
 #define LQCLOUD_ACTIONS_MAX 6
 // #define LQCLOUD_APPLKEY_SZ 12
+
+//defined in LTEM1C
+// #define MQTT_MSG_MAXSZ 1548
+// #define MQTT_TOPIC_MAXSZ 200
 
 /* Azure IoTHub Templates */
 
@@ -69,7 +73,7 @@
 #define MQTT_MSG_D2CTOPIC_TELEMETRY_TMPLT "devices/%s/messages/events/mId=~%d&mV=1.0&evT=tdat&evC=%s&evN=%s"
 #define MQTT_MSG_D2CTOPIC_ALERT_TMPLT "devices/%s/messages/events/mId=~%d&mV=1.0&evT=alrt&evC=%s&evN=%s"
 #define MQTT_MSG_D2CTOPIC_ACTIONRESP_TMPLT "devices/%s/messages/events/mId=~%d&mV=1.0&evT=aRsp&aCId=%s&evC=%s&evN=%s&aRslt=%d"
-
+#
 
 typedef struct lqcApplAction_tag
 {
@@ -77,6 +81,19 @@ typedef struct lqcApplAction_tag
     lqc_ActnFunc_t func;                    ///< Action function to be invoked, to perform device action.
     char paramList[LQCACTN_PARAMLIST_SZ];   ///< this is used for registration with LQ Cloud, function will receive a propsDict_t parameter.
 } lqcApplAction_t;
+
+
+typedef struct lqcDiagnostics_tag       ///< Note: diagnostic counters below can be optionally reset with remote action
+{
+    lqcResetCause_t resetCause;         ///< Reset cause for last system start, enum is same as Microchip SAMD51 (superset of SAMD21)
+    millisTime_t publishLastAt;         ///< Millis count for last send operation.
+    uint8_t publishLastFaultType;       ///< If send D2C msg fails, message type. 
+    uint16_t publishDurLast;            ///< Duration (in millis) of last mqtt publish operation
+    uint16_t publishDurMax;             ///< Maximum duration for any mqtt publish operation. Reset on connection reset.
+    uint8_t publishRetryMax;            ///< Maximum number of publish retries encountered for any message. Reset on connection reset.
+    uint8_t connectResets;              ///< Number of connection resets initiated by LQCloud connection manager. Reset by system reset.
+} lqcDiagnostics_t;
+
 
 // typedef enum lqcPropType_tag
 // {
@@ -101,12 +118,13 @@ typedef enum lqcStartType_tag
     lqcStartType_recover = 1
 } lqcStartType_t;
 
+
 typedef struct lqcMqttQueuedMsg_tag
 {
-    millisTime_t queuedAt;
-    char topic[1];
-    char msg[1];
-    // ??? eventType (for timeout determination)
+    uint32_t queuedAt;
+    uint8_t retries;
+    char topic[MQTT_TOPIC_SZ];
+    char msg[MQTT_MESSAGE_SZ];
 } lqcMqttQueuedMsg_t;
 
 
@@ -129,22 +147,26 @@ typedef struct lqCloudDevice_tag
     char sasToken[IOTHUB_SASTOKEN_SZ];                      ///< Device access secret
     char applKey[LQC_APPLKEY_SZ];                           ///< Optional action key, set on user's subscription
     lqcConnectMode_t connectMode;                           ///< Device to Cloud connection mode: OnDemand, Continuous, Required.
+    wrkTime_t *connectSched;                                ///< If connection mode OnDemand: period timer for when to connect
     lqcConnectState_t connectState;                         ///< Device to Cloud connection state: Closed, Open, Connected, Subscribed
-    lqcResetCause_t resetCause;                             ///< Reset cause for last system start, enum is same as Microchip SAMD51 (superset of SAMD21)
     uint16_t msgNm;                                         ///< LQ Cloud client message number, incr each send. Note: independent from MQTT message ID and IOTHUB mId property.
     uint8_t onDemandTimeoutMinutes;                         ///< The time the communications channel stays open for onDemand mode.
-    lqcMqttQueuedMsg_t *queuedMsgs[MQTTSEND_QUEUEDMSG_MAX]; ///< Outgoing messages, only queue if initial send fails
+    lqcMqttQueuedMsg_t mqttSendQueue[MQTTSEND_QUEUE_SZ];    ///< Outgoing messages, only queue if initial send fails
+    uint8_t mqttQueuedHead;                                 ///< array index of next message (from queued order)
+    uint8_t mqttQueuedTail;                                 ///< array index of next message (from queued order)
+    uint8_t mqttSendOverflowCnt;                            ///< counter to track send retry buffer overflows, buffer is fixed at build for deployed stability and kept as small as possible.
     lqcApplAction_t applActions[LQCACTN_CNT];               ///< Application invokable public methods (registered with LQ Cloud). LQ Cloud validates requests prior to messaging device.
     char actnMsgId[IOTHUB_MESSAGEID_SZ];                    ///< Action request mId, will be aCId (correlation ID).
     char actnName[LQCACTN_NAME_SZ];                         ///< Last action requested by cloud. Is reset on action request receive.
     uint16_t actnResult;                                    ///< Action result code for last action request. 
-    millisTime_t sendLastAt;                                ///< Millis count for last send operation.
-    uint8_t sendFaultType;                                  ///< If send D2C msg fails, message type. 
-    lqcAppNotification_func appNotification_func;           ///< (optional) Application notification callback: LQCloud notifies application of status events (connection, disconnect, etc.).
-    pwrStatus_func powerStatus_func;                        ///< (optional) Callback for LQCloud to get power status. 
-    battStatus_func batteryStatus_func;                     ///< (optional) Callback for LQCloud to get battery status. 
-    memStatus_func memoryStatus_func;                       ///< (optional) Callback for LQCloud to get memory status.
-    ntwkSignal_func ntwkSignal_func;                        ///< (optional) Callback for LQCloud to get network signal level\quality status.
+    notification_func notificationCB;                       ///< (optional) Application notification callback: LQCloud notifies application of status events (connection, disconnect, etc.).
+    ntwkStart_func networkStartCB;                          ///< (recommended) Application method to start the network and mqtt
+    ntwkStop_func networkStopCB;                            ///< (recommended) Application method to stop the network and mqtt
+    pwrStatus_func powerStatusCB;                           ///< (optional) Callback for LQCloud to get power status. 
+    battStatus_func batteryStatusCB;                        ///< (optional) Callback for LQCloud to get battery status. 
+    memStatus_func memoryStatusCB;                          ///< (optional) Callback for LQCloud to get memory status.
+    ntwkSignal_func ntwkSignalCB;                           ///< (optional) Callback for LQCloud to get network signal level\quality status.
+    lqcDiagnostics_t diagnostics;                      ///< Internal operations tracking counters
 } lqCloudDevice_t;
 
 
@@ -152,10 +174,9 @@ typedef struct lqCloudDevice_tag
 * These are not defined static because they are used across compilation units.
 ------------------------------------------------------------------------------------------------ */
 
-uint8_t LQC_connect();
-void LQC_mqttSender(const char *eventType, const char *summary, const char *topic, const char *body);
+bool LQC_mqttTrySend(const char *topic, const char *body, bool fromQueue);
 void LQC_faultHandler(const char *faultMsg);
-void LQC_appNotify(lqcAppNotification_t notificationType, const char *notificationMsg);
+void LQC_notifyApp(notificationType_t notifType, const char *notifMsg);
 
 // alerts
 void LQC_sendDeviceStarted(uint8_t startType);

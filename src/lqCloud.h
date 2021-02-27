@@ -52,9 +52,12 @@
 #define LQC_SASTOKEN_SZ 171
 #define LQC_APPLKEY_SZ 7
 
-#define MQTTSEND_RETRIES_MAX 20
-#define MQTTSEND_RETRY_WAITMILLIS 1000
-#define MQTTSEND_QUEUEDMSG_MAX 4
+#define LQCCONN_ONDEMAND_CONNDURATION 120       ///< period in seconds an on-demand connection stays open 
+#define LCQCONN_REQUIRED_RETRYINTVL 10000       ///< period in millis between required connectivity connect attemps
+
+#define MQTTSEND_QUEUE_SZ 2
+#define MQTTSEND_RETRY_DELAY 5000
+#define MQTTSEND_RETRY_RESETATSEND 3
 
 //#define ASSERT(trueResult, failMsg)  if(!(trueResult))  LQC_faultHandler(failMsg)
 //#define ASSERT_NOTEMPTY(string, failMsg)  if(string[0] == '\0') LQC_faultHandler(failMsg)
@@ -77,19 +80,19 @@ typedef enum lqcConnectode_tag
 
 typedef enum lqcConnectState_tag
 {
-    lqcConnectState_close = 0,
-    lqcConnectState_open = 1,
+    lqcConnectState_closed = 0,
+    lqcConnectState_opened = 1,
     lqcConnectState_connected = 2,
-    lqcConnectState_subscribed = 3
+    lqcConnectState_ready = 3               // aka subscribed
 } lqcConnectState_t;
 
 
-typedef enum lqcBatteryStatus_tag
+typedef enum batteryWarning_tag
 {
-    lqcBatteryStatus_good = 0,
-    lqcBatteryStatus_yellow = 1,
-    lqcBatteryStatus_red = 2
-}  lqcBatteryStatus_t;
+    batteryStatus_good = 0,
+    batteryStatus_yellow = 1,
+    batteryStatus_red = 2
+}  batteryWarning_t;
 
 
 typedef enum lqcResetCause_tag
@@ -129,22 +132,24 @@ typedef enum lqcEventType_tag
     lqcEventType_actnResp = 3
 } lqcEventType_t;
 
-typedef enum lqcAppNotification_tag
+typedef enum notificationType_tag
 {
-    lqcAppNotification_connect = 0,
-    lqcAppNotification_disconnect = 1,
-    lqcAppNotification_connectStatus = 2,
-    lqcAppNotification_hardFault = 99
-} lqcAppNotification_t;
+    notificationType_info = 0,
+    notificationType_connectPending = 1,
+    notificationType_connect = 2,
+    notificationType_disconnect = 3,
+    notificationType_hardFault = 99
+} notificationType_t;
 
 
-typedef void (*lqcAppNotification_func)(lqcAppNotification_t notifType, const char *notifMsg);
+typedef void (*notification_func)(notificationType_t notifType, const char *notifMsg);
+typedef bool (*pwrStatus_func)();                   ///< (optional) callback into appl to determine power status, true if power is good
+typedef batteryWarning_t (*battStatus_func)();      ///< (optional) callback into appl to determine battery status
+typedef int (*memStatus_func)();                    ///< (optional) callback into appl to determine memory available (between stack and heap)
+typedef int (*ntwkSignal_func)();                   ///< (optional) callback into appl to determine network signal strength
 
-typedef bool (*pwrStatus_func)();
-typedef lqcBatteryStatus_t (*battStatus_func)();
-typedef int (*memStatus_func)();
-typedef int (*ntwkSignal_func)();
-
+typedef bool (*ntwkStart_func)();       ///< callback into appl to wake communications hardware, returns true if HW was made ready
+typedef void (*ntwkStop_func)();        ///< callback into appl to sleep communications hardware
 
 
 /* Work Time 
@@ -158,26 +163,13 @@ typedef unsigned long millisTime_t, millisDuration_t;   // aka uint32_t
 
 
 /** 
- *  \brief Enum describing the behavior of a workSchedule object.
-*/
-typedef enum wrkTimeType_tag
-{   
-    wrkTimeType_periodic = 0,      ///< Periodic workSchedule to reaccure at consitent prescribed intervals
-    wrkTimeType_timer = 1          ///< Single shot (1 time) workSchedule timer 
-} wrkTimeType_t;
-
-
-/** 
  *  \brief typedef of workSchedule object to coordinate the timing of application work items.
 */
 typedef struct wrkTime_tag
 {
-    //wrkTimeType_t schedType;        ///< type of schedule; periodic (recurring), timer (one-shot). Controls reset of enabled
     millisTime_t period;            ///< Time period in milliseconds 
-    //millisTime_t beginAtMillis;     ///< Tick (system millis()) when the workSchedule timer was created
     millisTime_t lastAtMillis;      ///< Tick (system millis()) when the workSchedule timer last signaled in workSched_doNow()
     uint8_t enabled;                ///< Reset on timer sched objects, when doNow() (ie: timer is queried) following experation.
-    uint8_t userState;              ///< User definable information about a workSchedule
 } wrkTime_t;
 
 
@@ -279,19 +271,26 @@ extern "C"
 #endif
 
 
-void lqc_create(lqcAppNotification_func appNotificationFunc, pwrStatus_func pwrStatFunc, battStatus_func battStatFunc, memStatus_func memStatFunc);
+void lqc_create(notification_func appNotificationCB, 
+                ntwkStart_func ntwkStartCB,
+                ntwkStop_func ntwkStopCB,
+                pwrStatus_func pwrStatCB, 
+                battStatus_func battStatCB, 
+                memStatus_func memoryStatCB);
+
 void lqc_configTelemetryCallbacks(pwrStatus_func pwrStatFunc, battStatus_func battStatFunc, memStatus_func memStatFunc);
 void lqc_setDeviceName(const char *shortName);
 void lqc_setResetCause(lqcResetCause_t rcause);
 //void lqc_configMsgLifespans(uint16_t telemetryLifespan, uint16_t alertLifespan, uint16_t actionLifespan);
 
-resultCode_t lqc_start(const char *hubAddr, const char *deviceId, const char *sasToken, const char *actnKey);
+void lqc_start(const char *hubAddr, const char *deviceId, const char *sasToken, const char *actnKey);
+void lqc_setConnectMode(lqcConnectMode_t connMode, wrkTime_t *schedObj);
 lqcConnectMode_t lqc_getConnectMode();
 lqcConnectState_t lqc_getConnectState(const char *hostName, bool forceRead);
 
 void lqc_doWork();
-void lqc_sendTelemetry(const char *evntName, const char *evntSummary, const char *bodyJson);
-void lqc_sendAlert(const char *alrtName, const char *alrtSummary, const char *bodyJson);
+bool lqc_sendTelemetry(const char *evntName, const char *evntSummary, const char *bodyJson);
+bool lqc_sendAlert(const char *alrtName, const char *alrtSummary, const char *bodyJson);
 
 bool lqc_regApplAction(const char *actnName, lqc_ActnFunc_t applActn_func_t, const char *paramList);
 void lqc_sendActionResponse(uint16_t resultCode, const char *bodyJson);
