@@ -38,119 +38,46 @@
 
 #define KEYVALUE_DICT_CNT 15
 
+/* LQCloud EVENT size defs are for application (LQC consumers) originating content buffers
+ * Applicable to telemetry, alert messages and action reponses
+ ----------------------------------------------------------------------------------------------- */
 #define LQC_EVENT_NAME_SZ 41
 #define LQC_EVENT_SUMMARY_SZ 81
-#define LQC_EVENT_BODY_SZ 601
+#define LQC_EVENT_OVRHD_SZ 12
+#define LQC_EVENT_BODY_SZ (LQMQ_MSG_MAXSZ - LQC_EVENT_SUMMARY_SZ - LQC_EVENT_OVRHD_SZ)
+
 #define LQC_RECOVERY_WAIT_SECONDS 120
 #define ACTION_RESULT_SUCCESS 200
 #define ACTION_RESULT_NOTFOUND 404
 #define ACTION_RESULT_FAILURE 500
 
-#define LQC_SHORTNAME_SZ 13
 #define LQC_DEVICEID_SZ 41
+#define LQC_DEVICENAME_SZ 13
 #define LQC_URL_SZ 49
 #define LQC_SASTOKEN_SZ 171
-#define LQC_APPLKEY_SZ 7
+#define LQC_APPKEY_SZ 9
 
-#define LQCCONN_ONDEMAND_CONNDURATION 120       ///< period in seconds an on-demand connection stays open 
-#define LCQCONN_REQUIRED_RETRYINTVL 10000       ///< period in millis between required connectivity connect attemps
+#define LQNTWK_TYPE 20                                      ///< name\brief description of ntwk type\technology
+#define LQNTWK_NAME 20                                      ///< name of network carrier
 
-#define MQTTSEND_QUEUE_SZ 2
-#define MQTTSEND_RETRY_DELAY 5000
-#define MQTTSEND_RETRY_RESETATSEND 3
+#define LQCCONN_ONDEMAND_CONNDURATION 120                   ///< period in seconds an on-demand connection stays open 
+#define LCQCONN_REQUIRED_RETRYINTVL 10000                   ///< period in millis between required connectivity connect attemps
+
+/* FROM LTEm1c:mqtt.h
+ * --------------------------------------------------------------------------------------------- */
+#define LQMQ_MSG_MAXSZ 1548                                 ///< largest MQTT send message for BGx
+#define LQMQ_TOPIC_SUB_MAXSZ 90                             ///< total buffer size to construct topic for pub\sub AT actions
+#define LQMQ_TOPIC_PUB_MAXSZ 437                            ///< total buffer size to construct topic for pub\sub AT actions
+
+#define LQMQ_SEND_QUEUE_SZ 2
+#define LQMQ_SEND_RETRY_DELAY 5000
+#define LQMQ_SEND_RETRY_CONNECTIONRESETRETRIES 3
 
 //#define ASSERT(trueResult, failMsg)  if(!(trueResult))  LQC_faultHandler(failMsg)
 //#define ASSERT_NOTEMPTY(string, failMsg)  if(string[0] == '\0') LQC_faultHandler(failMsg)
 
 
-typedef enum networkType_tag
-{
-    networkType_lte = 0,
-    networkType_wifi = 1
-} networkType_t;
-
-
-typedef enum lqcConnectode_tag
-{
-    lqcConnectMode_onDemand = 0,           ///< device stays offline most of the time and connects to send or at prescribed intervals 
-    lqcConnectMode_continuous = 1,         ///< device is connected all of the time, but will not block local processing if offline
-    lqcConnectMode_required = 2            ///< device is connected all of the time and blocks local processing while disconnected
-} lqcConnectMode_t;
-
-
-typedef enum lqcConnectState_tag
-{
-    lqcConnectState_closed = 0,
-    lqcConnectState_opened = 1,
-    lqcConnectState_connected = 2,
-    lqcConnectState_ready = 3               // aka subscribed
-} lqcConnectState_t;
-
-
-typedef enum batteryWarning_tag
-{
-    batteryStatus_good = 0,
-    batteryStatus_yellow = 1,
-    batteryStatus_red = 2
-}  batteryWarning_t;
-
-
-typedef enum lqcResetCause_tag
-{
-    lqcResetCause_powerOn = 1,
-    lqcResetCause_pwrCore = 2,
-    lqcResetCause_pwrPeriph = 4,
-    lqcResetCause_nvm = 8,
-    lqcResetCause_external = 16,
-    lqcResetCause_watchdog = 32,
-    lqcResetCause_system = 64,
-    lqcResetCause_backup = 128
-} lqcResetCause_t;
-
-
-typedef struct lqcDeviceConfig_tag
-{
-    char shortName[LQC_SHORTNAME_SZ];
-    char deviceId[LQC_DEVICEID_SZ];
-    char url[LQC_URL_SZ];
-    char sasToken[LQC_SASTOKEN_SZ];
-    char applKey[LQC_APPLKEY_SZ];
-} lqcDeviceConfig_t;
-
-
-typedef enum lqcEventClass_tag
-{
-    lqcEventClass_lqcloud = 0,
-    lqcEventClass_application = 1
-} lqcEventClass_t;
-
-
-typedef enum lqcEventType_tag
-{
-    lqcEventType_telemetry = 1,
-    lqcEventType_alert = 2,
-    lqcEventType_actnResp = 3
-} lqcEventType_t;
-
-typedef enum notificationType_tag
-{
-    notificationType_info = 0,
-    notificationType_connectPending = 1,
-    notificationType_connect = 2,
-    notificationType_disconnect = 3,
-    notificationType_hardFault = 99
-} notificationType_t;
-
-
-typedef void (*notification_func)(notificationType_t notifType, const char *notifMsg);
-typedef bool (*pwrStatus_func)();                   ///< (optional) callback into appl to determine power status, true if power is good
-typedef batteryWarning_t (*battStatus_func)();      ///< (optional) callback into appl to determine battery status
-typedef int (*memStatus_func)();                    ///< (optional) callback into appl to determine memory available (between stack and heap)
-typedef int (*ntwkSignal_func)();                   ///< (optional) callback into appl to determine network signal strength
-
-typedef bool (*ntwkStart_func)();       ///< callback into appl to wake communications hardware, returns true if HW was made ready
-typedef void (*ntwkStop_func)();        ///< callback into appl to sleep communications hardware
-
+#pragma region wrkTime
 
 /* Work Time 
 ------------------------------------------------------------------------------------------------ */
@@ -180,16 +107,20 @@ typedef struct wrkTime_tag
 
 // extern lqCloudDevice_t g_lqCloud;
 
+#pragma endregion
 
+
+
+#pragma region LQC Actions
 
 /** 
  * LQ Cloud ACTIONS
  * ============================================================================================= */
 
-#define LQCACTN_PARAMS_CNT 4        ///< Max parameters in application action, change to increase/decrease
-#define LQCACTN_CNT 12              ///< number of application actions, change to needs (lower to save memory)
-#define LQCACTN_NAME_SZ 20          ///< Max length of an action name
-#define LQCACTN_PARAMLIST_SZ 80     ///< Max length of an action parameter list, LQ Cloud registered parameter names/types
+//#define LQCACTN_PARAMS_CNT 4          ///< Max parameters in application action, change to increase/decrease
+#define LQCACTN_CNT 12                  ///< number of application actions, change to needs (lower to save memory)
+#define LQCACTN_NAME_SZ 16              ///< Max length of an action name
+#define LQCACTN_PARAMLIST_SZ 40         ///< Max length of an action parameter list, LQ Cloud registered parameter names/types
 
 /* To be called in application space for each action to make accessible via LooUQ Cloud
 */
@@ -258,6 +189,109 @@ typedef struct wrkTime_tag
 //     char *values[KEYVALUE_DICT_SZ];  ///< Array of property values (as c-strings). Application is responsible for any type conversion.
 // } keyValueDict_t;
 
+#pragma endregion
+
+
+typedef enum networkType_tag
+{
+    networkType_lte = 0,
+    networkType_wifi = 1
+} networkType_t;
+
+
+typedef enum lqcConnectode_tag
+{
+    lqcConnectMode_onDemand = 0,           ///< device stays offline most of the time and connects to send or at prescribed intervals 
+    lqcConnectMode_continuous = 1,         ///< device is connected all of the time, but will not block local processing if offline
+    lqcConnectMode_required = 2            ///< device is connected all of the time and blocks local processing while disconnected
+} lqcConnectMode_t;
+
+
+typedef enum lqcConnectState_tag
+{
+    lqcConnectState_closed = 0,
+    lqcConnectState_opened = 1,
+    lqcConnectState_connected = 2,
+    lqcConnectState_ready = 3               // aka subscribed
+} lqcConnectState_t;
+
+
+typedef enum batteryWarning_tag
+{
+    batteryStatus_good = 0,
+    batteryStatus_yellow = 1,
+    batteryStatus_red = 2
+}  batteryWarning_t;
+
+
+typedef enum lqcResetCause_tag
+{
+    lqcResetCause_powerOn = 1,
+    lqcResetCause_pwrCore = 2,
+    lqcResetCause_pwrPeriph = 4,
+    lqcResetCause_nvm = 8,
+    lqcResetCause_external = 16,
+    lqcResetCause_watchdog = 32,
+    lqcResetCause_system = 64,
+    lqcResetCause_backup = 128
+} lqcResetCause_t;
+
+
+typedef struct lqcDeviceConfig_tag
+{
+    char deviceName[LQC_DEVICENAME_SZ];
+    char deviceId[LQC_DEVICEID_SZ];
+    char url[LQC_URL_SZ];
+    char sasToken[LQC_SASTOKEN_SZ];
+    char appKey[LQC_APPKEY_SZ];
+} lqcDeviceConfig_t;
+
+
+typedef enum lqcEventClass_tag
+{
+    lqcEventClass_lqcloud = 0,
+    lqcEventClass_application = 1
+} lqcEventClass_t;
+
+
+typedef enum lqcEventType_tag
+{
+    lqcEventType_telemetry = 1,
+    lqcEventType_alert = 2,
+    lqcEventType_actnResp = 3
+} lqcEventType_t;
+
+
+typedef enum lqcNotifType_tag
+{
+    lqcNotifType_info = 0,
+    lqcNotifType_alert = 1,
+    lqcNotifType_powerFail = 2,
+    lqcNotifType__INFO = 100,
+
+    // notifType__NETWORK 100-199
+    // __transport 101-109
+    // __protocols 111-129
+    // __services 131-149
+
+    lqcNotifType__SERVICES = 140,
+    lqcNotifType_connect = 141,
+    lqcNotifType_disconnect = 142,
+
+    lqcNotifType__CATASTROPHIC = 200,
+    lqcNotifType_hardFault = 255
+} lqcNotifType_t;
+
+
+typedef void (*appNotify_func)(uint8_t notifType, const char *notifMsg);    ///< (optional) app notification callback, notifyType casts to notificationType
+typedef bool (*pwrStatus_func)();                                           ///< (optional) callback into appl to determine power status, true if power is good
+typedef batteryWarning_t (*battStatus_func)();                              ///< (optional) callback into appl to determine battery status
+typedef int (*memStatus_func)();                                            ///< (optional) callback into appl to determine memory available (between stack and heap)
+typedef int (*ntwkSignal_func)();                                           ///< (optional) callback into appl to determine network signal strength
+
+typedef bool (*ntwkStart_func)();       ///< callback into appl to wake communications hardware, returns true if HW was made ready
+typedef void (*ntwkStop_func)();        ///< callback into appl to sleep communications hardware
+
 
 /** 
  *  \brief typedef of LQ Cloud application define device action function (required signature).
@@ -271,7 +305,8 @@ extern "C"
 #endif
 
 
-void lqc_create(notification_func appNotificationCB, 
+void lqc_create(lqcResetCause_t resetCause,
+                appNotify_func appNotifyCB, 
                 ntwkStart_func ntwkStartCB,
                 ntwkStop_func ntwkStopCB,
                 pwrStatus_func pwrStatCB, 
@@ -280,7 +315,6 @@ void lqc_create(notification_func appNotificationCB,
 
 void lqc_configTelemetryCallbacks(pwrStatus_func pwrStatFunc, battStatus_func battStatFunc, memStatus_func memStatFunc);
 void lqc_setDeviceName(const char *shortName);
-void lqc_setResetCause(lqcResetCause_t rcause);
 //void lqc_configMsgLifespans(uint16_t telemetryLifespan, uint16_t alertLifespan, uint16_t actionLifespan);
 
 void lqc_start(const char *hubAddr, const char *deviceId, const char *sasToken, const char *actnKey);
@@ -300,7 +334,6 @@ char *lqc_getDeviceName();
 char *lqc_getDeviceShortName();
 
 wrkTime_t wrkTime_create(millisDuration_t intervalMillis);
-//wrkTime_t wrkTime_createTimer(millisDuration_t intervalMillis);
 void wrkTime_start(wrkTime_t *schedObj);
 void wrkTime_stop(wrkTime_t *schedObj);
 bool wrkTime_isRunning(wrkTime_t *schedObj);

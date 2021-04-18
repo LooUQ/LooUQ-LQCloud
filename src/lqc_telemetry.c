@@ -23,20 +23,20 @@ extern lqCloudDevice_t g_lqCloud;
  */
 bool lqc_sendTelemetry(const char *evntName, const char *evntSummary, const char *bodyJson)
 {
-    char mqttName[LQC_EVENT_NAME_SZ] = {0};
-    char mqttSummary[LQC_EVENT_SUMMARY_SZ] = {0};
-    char mqttTopic[TOPIC_SZ];
-    char mqttBody[LQC_EVENT_BODY_SZ]; 
+    char msgEvntName[LQC_EVENT_NAME_SZ] = {0};
+    char msgEvntSummary[LQC_EVENT_SUMMARY_SZ] = {0};
+    char msgTopic[LQMQ_TOPIC_PUB_MAXSZ];
+    char msgBody[LQC_EVENT_BODY_SZ]; 
     char deviceStatus[DVCSTATUS_SZ] = {0};
     char dStatusBuild[DVCSTATUS_SZ] = {0};
     
     if (evntName[0] == ASCII_cNULL)
-        strncpy(mqttName, "telemetry", 9);
+        strncpy(msgEvntName, "telemetry", 9);
     else
-        strncpy(mqttName, evntName, MIN(strlen(evntName), LQC_EVENT_NAME_SZ-1));
+        strncpy(msgEvntName, evntName, MIN(strlen(evntName), LQC_EVENT_NAME_SZ-1));
 
     if (evntSummary[0] != ASCII_cNULL)
-        snprintf(mqttSummary, LQC_EVENT_SUMMARY_SZ, "\"descr\": \"%s\",", evntSummary);
+        snprintf(msgEvntSummary, LQC_EVENT_SUMMARY_SZ, "\"descr\": \"%s\",", evntSummary);
 
     // telemetry options, get device status using registered service functions
     if (g_lqCloud.powerStatusCB)
@@ -68,8 +68,8 @@ bool lqc_sendTelemetry(const char *evntName, const char *evntSummary, const char
     }
 
     // "devices/%s/messages/events/mId=~%d&mV=1.0&evT=tdat&evC=%s&evN=%s"
-    snprintf(mqttTopic, MQTT_TOPIC_SZ, MQTT_MSG_D2CTOPIC_TELEMETRY_TMPLT, g_lqCloud.deviceId, g_lqCloud.msgNm++, "appl", mqttName);
-    snprintf(mqttBody, MQTT_MESSAGE_SZ, "{%s\"telemetry\": %s%s}", mqttSummary, bodyJson, deviceStatus);
-    return LQC_mqttTrySend(mqttTopic, mqttBody, false);
+    snprintf(msgTopic, LQMQ_TOPIC_PUB_MAXSZ, LQMQ_MSG_D2CTOPIC_TELEMETRY_TMPLT, g_lqCloud.deviceId, g_lqCloud.msgNm++, "appl", msgEvntName);
+    snprintf(msgBody, LQMQ_MSG_MAXSZ, "{%s\"telemetry\": %s%s}", msgEvntSummary, bodyJson, deviceStatus);
+    return LQC_mqttTrySend(msgTopic, msgBody, false);
 }
 

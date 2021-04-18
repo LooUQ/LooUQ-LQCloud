@@ -5,7 +5,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Cortex Debug",
+            "name": "Cortex Debug (launch)",
             "type": "cortex-debug",
             "cwd": "${workspaceRoot}",
             "executable": ".\\.build/PlatformTest.ino.elf",
@@ -13,6 +13,16 @@
             "servertype": "jlink",
             "device": "ATSAMD21G18",
             "runToMain": true           
+        },
+        {
+            "name": "Cortex Debug (attach)",
+            "type": "cortex-debug",
+            "cwd": "${workspaceRoot}",
+            "executable": ".\\.build/PlatformTest.ino.elf",
+            "request": "attach",
+            "servertype": "jlink",
+            "device": "ATSAMD21G18"
         }
+
     ]
 }

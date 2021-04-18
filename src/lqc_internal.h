@@ -30,8 +30,8 @@
 #include <lqCloud.h>
 
 
-#define TOPIC_SZ 201
-#define PROPS_SZ 201
+// #define TOPIC_SZ 201
+// #define PROPS_SZ 201
 #define DVCSTATUS_SZ 61
 
 #define IOTHUB_URL_SZ 48
@@ -40,27 +40,32 @@
 #define IOTHUB_MESSAGEID_SZ 38
 #define IOTHUB_PORT 8883
 #define IOTHUB_CONNECT_RETRIES 12
-// #define LQCLOUD_DEVICEID_SZ 40
-// #define LQCLOUD_DVCSHORTNAME_SZ 12
-#define LQCLOUD_ACTIONS_MAX 6
-// #define LQCLOUD_APPLKEY_SZ 12
 
-//defined in LTEM1C
-// #define MQTT_MSG_MAXSZ 1548
-// #define MQTT_TOPIC_MAXSZ 200
+#define LQC_EVNTCLASS_SZ 5
 
-/* Azure IoTHub Templates */
+#define LQCACTN_BUF_SZ 80                   ///< good averaged for up to a couple params
+#define LQCACTN_LQCACTIONS_BODY_SZ 180      ///< calculated from actual JSON
+
+#define EXPAND_ASSERTS
+#ifdef EXPAND_ASSERTS
+#define ASSERT(true_cond, fail_msg)  ((true_cond) ? 0 : LQC_notifyApp(255, (fail_msg)))
+#else
+#define ASSERT(true_cond, fail_msg)  (0)
+#endif
+
+/* Azure IoTHub Templates 
+ ----------------------------------------------------------------------------------------------- */
 
 /* C2D Receive Topic (subscribe) Template
  * %s = device ID
 */
-#define MQTT_IOTHUB_C2D_RECVTOPIC_TMPLT "devices/%s/messages/devicebound/#"
+#define LQMQ_IOTHUB_C2D_RECVTOPIC_TMPLT "devices/%s/messages/devicebound/#"
 
 /* UserID Template
  * %s = iothub URL
  * %s = device ID
 */
-#define MQTT_IOTHUB_USERID_TMPLT "%s/%s/?api-version=2018-06-30" 
+#define LQMQ_IOTHUB_USERID_TMPLT "%s/%s/?api-version=2018-06-30" 
 
 /* Message Properties Template
  * %s = dId : device ID
@@ -70,10 +75,10 @@
  * %s = evC : event class ()
  * %s = evN : event name
 */
-#define MQTT_MSG_D2CTOPIC_TELEMETRY_TMPLT "devices/%s/messages/events/mId=~%d&mV=1.0&evT=tdat&evC=%s&evN=%s"
-#define MQTT_MSG_D2CTOPIC_ALERT_TMPLT "devices/%s/messages/events/mId=~%d&mV=1.0&evT=alrt&evC=%s&evN=%s"
-#define MQTT_MSG_D2CTOPIC_ACTIONRESP_TMPLT "devices/%s/messages/events/mId=~%d&mV=1.0&evT=aRsp&aCId=%s&evC=%s&evN=%s&aRslt=%d"
-#
+#define LQMQ_MSG_D2CTOPIC_TELEMETRY_TMPLT "devices/%s/messages/events/mId=~%d&mV=1.0&evT=tdat&evC=%s&evN=%s"
+#define LQMQ_MSG_D2CTOPIC_ALERT_TMPLT "devices/%s/messages/events/mId=~%d&mV=1.0&evT=alrt&evC=%s&evN=%s"
+#define LQMQ_MSG_D2CTOPIC_ACTIONRESP_TMPLT "devices/%s/messages/events/mId=~%d&mV=1.0&evT=aRsp&aCId=%s&evC=%s&evN=%s&aRslt=%d"
+
 
 typedef struct lqcApplAction_tag
 {
@@ -95,23 +100,6 @@ typedef struct lqcDiagnostics_tag       ///< Note: diagnostic counters below can
 } lqcDiagnostics_t;
 
 
-// typedef enum lqcPropType_tag
-// {
-//     lqcPropType_object = 0,
-//     lqcPropType_array = 1,
-//     lqcPropType_string = 2,
-//     lqcPropType_primitive = 3
-// } lqcPropType_t;
-
-
-// typedef struct lqcProp_tag
-// {
-//     char *name;
-//     lqcPropType_t type;
-//     char *value;
-//     uint16_t len;
-// } lqcProp_t;
-
 typedef enum lqcStartType_tag
 {
     lqcStartType_cold = 0,
@@ -122,9 +110,10 @@ typedef enum lqcStartType_tag
 typedef struct lqcMqttQueuedMsg_tag
 {
     uint32_t queuedAt;
+    uint32_t lastTryAt;
     uint8_t retries;
-    char topic[MQTT_TOPIC_SZ];
-    char msg[MQTT_MESSAGE_SZ];
+    char topic[LQMQ_TOPIC_PUB_MAXSZ];
+    char msg[LQMQ_MSG_MAXSZ];
 } lqcMqttQueuedMsg_t;
 
 
@@ -140,18 +129,18 @@ typedef void (*lqcRecv_func_t)(char *topic, char *props, char *message);
 typedef struct lqCloudDevice_tag
 {
     char deviceId[LQC_DEVICEID_SZ];                         ///< LQ Cloud device ID, generally expressed as a GUID, but can be any unique string value like a IMEI or ICCID.
-    char deviceShortName[LQC_SHORTNAME_SZ];                 ///< device short name for local display
-    char networkType[30];                                   ///<
-    char networkName[20];                                   ///<
+    char deviceName[LQC_DEVICENAME_SZ];                     ///< device short name for local display
+    char networkType[LQNTWK_TYPE];                          ///<
+    char networkName[LQNTWK_NAME];                          ///<
     char iothubAddr[IOTHUB_URL_SZ];                         ///< URL of the configured LooUQ Cloud ingress point (Az IoTHub)
     char sasToken[IOTHUB_SASTOKEN_SZ];                      ///< Device access secret
-    char applKey[LQC_APPLKEY_SZ];                           ///< Optional action key, set on user's subscription
+    char appKey[LQC_APPKEY_SZ];                             ///< Optional action key, set on user's subscription
     lqcConnectMode_t connectMode;                           ///< Device to Cloud connection mode: OnDemand, Continuous, Required.
     wrkTime_t *connectSched;                                ///< If connection mode OnDemand: period timer for when to connect
     lqcConnectState_t connectState;                         ///< Device to Cloud connection state: Closed, Open, Connected, Subscribed
     uint16_t msgNm;                                         ///< LQ Cloud client message number, incr each send. Note: independent from MQTT message ID and IOTHUB mId property.
     uint8_t onDemandTimeoutMinutes;                         ///< The time the communications channel stays open for onDemand mode.
-    lqcMqttQueuedMsg_t mqttSendQueue[MQTTSEND_QUEUE_SZ];    ///< Outgoing messages, only queue if initial send fails
+    lqcMqttQueuedMsg_t mqttSendQueue[LQMQ_SEND_QUEUE_SZ];   ///< Outgoing messages, only queue if initial send fails
     uint8_t mqttQueuedHead;                                 ///< array index of next message (from queued order)
     uint8_t mqttQueuedTail;                                 ///< array index of next message (from queued order)
     uint8_t mqttSendOverflowCnt;                            ///< counter to track send retry buffer overflows, buffer is fixed at build for deployed stability and kept as small as possible.
@@ -159,7 +148,7 @@ typedef struct lqCloudDevice_tag
     char actnMsgId[IOTHUB_MESSAGEID_SZ];                    ///< Action request mId, will be aCId (correlation ID).
     char actnName[LQCACTN_NAME_SZ];                         ///< Last action requested by cloud. Is reset on action request receive.
     uint16_t actnResult;                                    ///< Action result code for last action request. 
-    notification_func notificationCB;                       ///< (optional) Application notification callback: LQCloud notifies application of status events (connection, disconnect, etc.).
+    appNotify_func notificationCB;                          ///< (optional) Application notification callback: LQCloud notifies application of status events (connection, disconnect, etc.).
     ntwkStart_func networkStartCB;                          ///< (recommended) Application method to start the network and mqtt
     ntwkStop_func networkStopCB;                            ///< (recommended) Application method to stop the network and mqtt
     pwrStatus_func powerStatusCB;                           ///< (optional) Callback for LQCloud to get power status. 
@@ -176,7 +165,7 @@ typedef struct lqCloudDevice_tag
 
 bool LQC_mqttTrySend(const char *topic, const char *body, bool fromQueue);
 void LQC_faultHandler(const char *faultMsg);
-void LQC_notifyApp(notificationType_t notifType, const char *notifMsg);
+void LQC_notifyApp(uint8_t notifType, const char *notifMsg);
 
 // alerts
 void LQC_sendDeviceStarted(uint8_t startType);

@@ -20,6 +20,10 @@
 
 #include "dvcSettings.h"
 
+
+// using Adafruit's CPP package for watchdog, TODO C99 version
+#include <Adafruit_SleepyDog.h>         // watchdog support
+
 #include <Adafruit_NeoPixel.h>
 
 
@@ -48,6 +52,9 @@ wrkTime_t alert_intvl;
 
 // example action doLedFlash: has a worker function to do the work without blocking
 wrkTime_t ledFlash_intvl;
+// and a counter shared by the "start" function and the "do work" function.
+uint8_t flashesRemaining;
+
 
 // NEOPixel display
 #ifdef ENABLE_NEOPIXEL
@@ -69,7 +76,9 @@ void setup() {
         #endif
     #endif
 
-    PRINTF(dbgColor_white, "LooUQ Cloud - CloudTest\r");
+    PRINTF(dbgColor_error, "LooUQ Cloud - CloudTest\r");
+    lqcResetCause_t resetCause = (lqcResetCause_t)Watchdog.resetCause();
+    PRINTFC(dbgColor_magenta,"RCause=%d \r", resetCause);
 
     // device application setup and initialization
     pinMode(buttonPin, INPUT);                          // feather uses pin=9 for battery voltage divider, floats at ~2v
@@ -84,13 +93,15 @@ void setup() {
     neo.show();
     #endif
 
-    ltem1_create(ltem1_pinConfig, ltem1Start_powerOff, ltem1Functionality_services);
+    ltem1_create(ltem1_pinConfig, appNotifRecvr);
+    mqtt_create();
+
     // since the LQCloud deviceId is the LTEm1 modem's IMEI, the application needs to start the network.
     networkStart();
 
     /* Add LQCloud to project and register local service callbacks.
      * ----------------------------------------------------------------------------------------- */
-    lqc_create(notificationHandler, networkStart, networkStop, NULL, getBatteryStatus, getFreeMemory);
+    lqc_create(resetCause, appNotifRecvr, networkStart, networkStop, NULL, getBatteryStatus, getFreeMemory);
     /* Callbacks
      * - cloudNotificationsHandler: cloud informs app of events
      * - networkStart:
@@ -99,19 +110,21 @@ void setup() {
      * - getBatteryStatus: enum of battery power reserve
      * - getFreeMemory: how much memory between stack and heap. Even without malloc, does the stack have room
     */
-    lqc_start(LQCLOUD_URL, mdminfo_ltem1().imei, LQCLOUD_SASTOKEN, NULL);
+
+    //lqc_start(LQCLOUD_URL, DEVICEID, LQCLOUD_SASTOKEN, "");
+    lqc_start(LQCLOUD_URL, mdminfo_ltem1().imei, LQCLOUD_SASTOKEN, "");
 
     PRINTF(dbgColor_info, "Connected to LQ Cloud, Device started.\r");
-    #ifdef ENABLE_NEOPIXEL
-    neo.setPixelColor(0, 0, 255, 0);       // green once started
-    neo.show();
-    #endif
 
-    // sendTelemetry_intvl = wrkTime_create(PERIOD_FROM_SECONDS(30));      // this application sends telemetry continuously every 30 secs
-    // alert_intvl = wrkTime_create(PERIOD_FROM_MINUTES(60));              // and a periodic alert every 60 min
     sendTelemetry_intvl = wrkTime_create(PERIOD_FROM_SECONDS(30));      // this application sends telemetry continuously every 30 secs
+    alert_intvl = wrkTime_create(PERIOD_FROM_MINUTES(60));              // and a periodic alert every 60 min
 
-    registerActions();
+    registerAppLqcActions();
+    /* now enable watchdog as app transitions to loop()
+     * setup has already registered yield callback with LTEm1c to handle longer running network actions
+     */
+    uint16_t wdtDuration = Watchdog.enable();                           // default = 16 seconds
+    PRINTFC(dbgColor_warn, "WDT Duration=%d\r\r", wdtDuration);
 
     // status: init completed.
     #ifdef ENABLE_NEOPIXEL
@@ -122,6 +135,7 @@ void setup() {
 
 
 /* loop() ------------------------------------------------------------------------------------------------------------- */
+bool lastSend = true;
 
 void loop() 
 {
@@ -140,25 +154,39 @@ void loop()
         char body[BODY_SZ] = {0};
         snprintf(summary, SUMMARY_SZ, "Test Telemetry, Loop=%d", loopCnt);
         snprintf(body, BODY_SZ, "{\"loopCnt\": %d}" , loopCnt);
-        lqc_sendTelemetry("LQ CloudTest", summary, body);
+
+        bool thisSend = lqc_sendTelemetry("LQ CloudTest", summary, body);
+        if (!thisSend && !lastSend)
+             appNotifRecvr(lqcNotifType_hardFault, "Successive send errors");
+        lastSend = thisSend;
 
         loopCnt++;
     }
 
-    // if (digitalRead(buttonPin) == LOW)
-    // {
-    //     delay(debouncePeriod);
-    //     int bttn = digitalRead(buttonPin);
-    //     if (digitalRead(buttonPin) == LOW)
-    //     {
-    //         PRINTFC(dbgColor_info, "\rUser ReqstAlert Button Pressed\r");
-    //         lqc_sendAlert("cloudTest-user-alert", "UserAlert", "\"User signaled\"");
-    //     }
-    // }
+    if (digitalRead(buttonPin) == LOW)
+    {
+        delay(debouncePeriod);
+        int bttn = digitalRead(buttonPin);
+        if (digitalRead(buttonPin) == LOW)
+        {
+            PRINTFC(dbgColor_info, "\rUser ReqstAlert Button Pressed\r");
+            lqc_sendAlert("cloudTest-user-alert", "UserAlert", "\"User signaled\"");
+        }
+    }
 
     // Do LQ Cloud and application background tasks
     lqc_doWork();
     //applWork_doFlashLed();
+
+    //#define WD_FAULT_TEST 3
+    // IMPORTANT! pet the dog to keep dog happy and app alive
+    // ---------------------------------------------------------
+    #ifdef WD_FAULT_TEST
+    if (loopCnt < WD_FAULT_TEST)
+        Watchdog.reset();
+    #else
+    Watchdog.reset();
+    #endif
 }
 
 
@@ -177,7 +205,7 @@ void loop()
 bool networkStart()
 {
     if (ltem1_getReadyState() != qbg_readyState_appReady)
-        ltem1_start();                                      // powers on modem (standard power profile)
+        ltem1_start(ltem1Protocols_mqtt);                   // validates protocols, powers on modem (standard power profile) and starts processing
 
     PRINTFC(dbgColor_none, "Waiting on network...\r");
     networkOperator_t networkOp;
@@ -217,23 +245,15 @@ void networkStop()
 /* Application "other" Callbacks
 ========================================================================================================================= */
 
-void notificationHandler(notificationType_t notifType, const char *notifMsg)
+void appNotifRecvr(uint8_t notifType, const char *notifMsg)
 {
     switch (notifType)
     {
-        case notificationType_info:
+        case lqcNotifType_info:
             PRINTFC(dbgColor_info, "LQCloud Info: %s\r", notifMsg);
             return;
 
-        case notificationType_connectPending:
-            PRINTFC(dbgColor_info, "LQCloud Attempting Connect\r");
-            #ifdef ENABLE_NEOPIXEL
-                neo.setPixelColor(0, 255, 80, 0);        // yellow-ish
-                neo.show();
-            #endif
-            return;
-
-        case notificationType_connect:
+        case lqcNotifType_connect:
             PRINTFC(dbgColor_info, "LQCloud Connected\r");
             #ifdef ENABLE_NEOPIXEL
                 neo.setPixelColor(0, 0, 255, 0);        // green
@@ -241,23 +261,24 @@ void notificationHandler(notificationType_t notifType, const char *notifMsg)
             #endif
             return;
 
-        case notificationType_disconnect:
-            PRINTFC(dbgColor_warn, "LQCloud Disconnected\r");
-            // update local indicators like LEDs, OLED, etc.
+        case lqcNotifType_disconnect:
+            PRINTFC(dbgColor_warn, "LQCloud Attempting Connect\r");
             #ifdef ENABLE_NEOPIXEL
-                neo.setPixelColor(0, 255, 255, 0);      // yellow
+                neo.setPixelColor(0, 255, 0, 255);       // magenta
                 neo.show();
             #endif
             return;
+    }
 
-        case notificationType_hardFault:
-            PRINTFC(dbgColor_error, "LQCloud-HardFault: %s\r", notifMsg);
-            // update local indicators like LEDs, OLED, etc.
-            #ifdef ENABLE_NEOPIXEL
-                neo.setPixelColor(0, 255, 0, 0);        // red
-                neo.show();
-            #endif
-            while (true) {}
+    if (notifType > lqcNotifType__CATASTROPHIC)
+    {
+        PRINTFC(dbgColor_error, "LQCloud-HardFault: %s\r", notifMsg);
+        // update local indicators like LEDs, OLED, etc.
+        #ifdef ENABLE_NEOPIXEL
+            neo.setPixelColor(0, 255, 0, 0);        // red
+            neo.show();
+        #endif
+        while (true) {}
     }
 }
 
@@ -361,7 +382,7 @@ static void setLedState(keyValueDict_t params)
 }
 
 
-    /* Using a workSchedule object to handle needed "flash" delays without blocking delay()
+    /* Using a wrkSched (work schedule) object to handle needed "flash" delays without blocking delay()
      * WorkSchedule properties enabled and state are for application consumer use. Here we are using
      * state to count up flashes until request serviced. Clearing it back to 0 when complete.
      * When triggered this function uses workSched_reset to start the interval in sync with request.
@@ -370,80 +391,91 @@ static void setLedState(keyValueDict_t params)
      * sequence is running will be mo
     */
 
-// /**
-//  *	\brief The doFlashLed is the function to kick off the LED flashing, it is invoked by the LC Cloud Actions dispatcher. 
-//  * 
-//  *  See applWork_doFlashLed() below for the rest of the story. 
-//  */
-// static const char *doFlashLed_params = { "flashCount" "=" LQCACTN_PARAMTYPE_INT "&" "cycleMillis" "=" LQCACTN_PARAMTYPE_INT };
-// static void doFlashLed(keyValueDict_t params)
-// {
-//     uint8_t flashes;
-//     uint16_t cycleMillis;
 
-//     flashes = atol(lqc_getDictValue("flashCount", params));
-//     cycleMillis = atoi(lqc_getDictValue("cycleMillis", params));
+/**
+ *	\brief The doFlashLed is the function to kick off the LED flashing, it is invoked by the LC Cloud Actions dispatcher. 
+ * 
+ *  See applWork_doFlashLed() below for the rest of the story. 
+ */
+static const char *doFlashLed_params = { "flashCount" "=" LQCACTN_PARAMTYPE_INT "&" "cycleMillis" "=" LQCACTN_PARAMTYPE_INT };
+static void doFlashLed(keyValueDict_t params)
+{
+    uint8_t flashes;
+    uint16_t cycleMillis;
 
-//     /* If cycleMillis * flashes is too long LQ Cloud will timeout action request, to prevent that we limit total time
-//     * here. For long running LQ Cloud actions: start process, return status of action start, and use a separate Action
-//     * to test for action process still running or complete. Alternate pattern: use alert webhook callback on process end.
-//     */
+    #define DICTIONARY_VALUE_CSTRING_SZ 12
+    char kvalue[DICTIONARY_VALUE_CSTRING_SZ];
 
-//     uint16_t cycleDuration = flashes * 2 * cycleMillis;
-//     if (cycleDuration > 10000)
-//     {
-//         PRINTF(dbgColor_cyan, "doLampFlash: flashes=%i, cycleMs=%i\r", flashes, cycleMillis);
-//         lqc_sendActionResponse(RESULT_CODE_BADREQUEST, "Flashing event is too long.");
-//     }
+    lqc_getDictValue("flashCount", params, kvalue, DICTIONARY_VALUE_CSTRING_SZ);
+    flashes = atoi(kvalue);
 
-//     if (ledFlash_intvl.userState == 0)
-//     {
-//         wrkTime_create(cycleMillis);
-//         ledFlash_intvl.userState = flashes;                     // this will count down, 0 = complete
-//     }
-//     else
-//         lqc_sendActionResponse(RESULT_CODE_CONFLICT, "Flash is busy.");
+    if (flashes = 0 || flashes > 10)
+        lqc_sendActionResponse(RESULT_CODE_BADREQUEST, "Requested flash count must be between 1 and 10.");
 
-//     PRINTF(dbgColor_cyan, "doLampFlash: flashes=%i, cycleMs=%i\r", flashes, cycleMillis);
-//     // started the process now return
-// }
+    lqc_getDictValue("cycleMillis", params, kvalue, DICTIONARY_VALUE_CSTRING_SZ);
+    cycleMillis = atoi(kvalue);
 
+    /* If cycleMillis * flashes is too long LQ Cloud will timeout action request, to prevent that we limit total time
+    * here. For long running LQ Cloud actions: start process, return status of action start, and use a separate Action
+    * to test for action process still running or complete. Alternate pattern: use alert webhook callback on process end.
+    */
 
-// /**
-//  *	\brief The applWork_doFlashLed is the pseudo-background "worker" function process the LED flashing until request is complete.
-//  * 
-//  *  The applWork_doFlashLed is the background worker that continues the process until complete. This function's invoke is in standard loop().
-//  *  applWork_* is just a convention to make the background process easier to identify.
-//  * 
-//  *  NOTE: In the workSched object the .enabled and .state properties are for appl use as needed. Here we are using .state as a count down to completion.
-//  */
-// void applWork_doFlashLed()
-// {
-//     // no loop here, do some work and leave
+    uint16_t cycleDuration = flashes * 2 * cycleMillis;
+    if (cycleDuration > 5000)
+    {
+        PRINTF(dbgColor_cyan, "doLampFlash: flashes=%i, cycleMs=%i\r", flashes, cycleMillis);
+        lqc_sendActionResponse(RESULT_CODE_BADREQUEST, "Flashing event is too long, 5 seconds max.");
+    }
 
-//     if (ledFlash_intvl.userState > 0 && wrkTime_doNow(&ledFlash_intvl))         // put state test first to short-circuit evaluation
-//     {
-//         if (ledFlash_intvl.userState % 2 == 0)
-//             digitalWrite(ledPin, LOW);      // ON
-//         else
-//             digitalWrite(ledPin, HIGH);
+    if (flashesRemaining != 0)                                  
+        lqc_sendActionResponse(RESULT_CODE_CONFLICT, "Flash process is already busy flashing.");
+    else
+    {
+        ledFlash_intvl = wrkTime_create(cycleMillis);
+        flashesRemaining = flashes;                     // this will count down, 0 = complete
+    }
 
-//         ledFlash_intvl.userState--;             // count down
-
-//         if (ledFlash_intvl.userState == 0)
-//         {
-//             PRINTF(dbgColor_cyan, "doLampFlash Completed\r");
-//             lqc_sendActionResponse(RESULT_CODE_SUCCESS, "");   // flash action completed sucessfully
-//         }
-//     }
-// }
+    PRINTF(dbgColor_cyan, "doLampFlash: flashes=%i, cycleMs=%i\r", flashes, cycleMillis);
+    // the "flash LED" process is now started, return to the main loop and handle the flashing in applWork_doFlashLed() below.
+}
 
 
-void registerActions()
+/**
+ *	\brief The applWork_doFlashLed is the pseudo-background "worker" function process the LED flashing until request is complete.
+ * 
+ *  The applWork_doFlashLed is the background worker that continues the process until complete. This function's invoke is in standard loop().
+ *  applWork_* is just a convention to make the background process easier to identify.
+ * 
+ *  NOTE: In the wrkSched object you can extend it to contain information for your needs at a potential cost of memory. You could create a 
+ *  .flashes or .state property for this case that is a count down to completion.
+ */
+void applWork_doFlashLed()
+{
+    // no loop here, do some work and leave
+
+    if (flashesRemaining > 0 && wrkTime_doNow(&ledFlash_intvl))         // put state test first to short-circuit evaluation
+    {
+        if (flashesRemaining % 2 == 0)
+            digitalWrite(ledPin, LOW);      // ON
+        else
+            digitalWrite(ledPin, HIGH);
+
+        flashesRemaining--;             // count down
+
+        if (flashesRemaining == 0)
+        {
+            PRINTF(dbgColor_cyan, "doLampFlash Completed\r");
+            lqc_sendActionResponse(RESULT_CODE_SUCCESS, "");   // flash action completed sucessfully
+        }
+    }
+}
+
+
+void registerAppLqcActions()
 {
     lqc_regApplAction("get-stat", &getStatus, getStatus_params);
     lqc_regApplAction("set-led", &setLedState, setLedState_params);
-    // lqc_regApplAction("do-flashLed", &doFlashLed, doFlashLed_params);
+    lqc_regApplAction("do-flashLed", &doFlashLed, doFlashLed_params);
 
     // macro way
     // REGISTER_ACTION("get-stat", getStatus, getStatus_params);

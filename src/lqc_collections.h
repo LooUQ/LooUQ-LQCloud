@@ -82,7 +82,7 @@ extern "C"
 
 
 // Query String Dictionary
-keyValueDict_t lqc_createDictFromQueryString(char *dictSrc);
+keyValueDict_t lqc_createDictFromQueryString(char *dictSrc, size_t qsSize);
 void lqc_getDictValue(const char *key, keyValueDict_t dict, char *value, uint8_t valSz);
 uint16_t lqc_strReplace(char *srcStr, char fromChr, char toChr);
 

@@ -9,18 +9,20 @@ static uint16_t findJsonBlockLength(const char *blockStart, const char *jsonEnd,
 /**
  *  \brief Parses a HTTP style query string (key\value pairs) and creates a dictionary overlay for the keys and values. 
  * 
- *  \param [in] dictSrc - Char pointer to the c-string containing key value pairs to identify. NOTE: the source is mutated in the process, keys\values are NULL term'd.
+ *  \param dictSrc [in] - Char pointer to the c-string containing key value pairs to identify. NOTE: the source is mutated in the process, keys\values are NULL term'd.
+ *  \param qsSize [in] - Lenght of the incoming query string. 
  * 
  *  \return Struct with map (pointers) to the keys and values (within the source array)
 */
-keyValueDict_t lqc_createDictFromQueryString(char *dictSrc)
+keyValueDict_t lqc_createDictFromQueryString(char *dictSrc, size_t qsSize)
 {
     keyValueDict_t result = {0};
     //keyValueDict_t result = {0, 0, {0}, {0}};
 
-    result.length = strlen(dictSrc);
-    if (result.length == 0)
+    if (qsSize == 0)
         return result;
+
+    result.length = qsSize;
     
     char *next = dictSrc;
     char *delimAt;

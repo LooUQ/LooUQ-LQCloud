@@ -92,26 +92,26 @@ void LQC_sendDeviceStarted(uint8_t rCause)
 
 static bool sendAlert(lqcEventClass_t alrtClass, const char *alrtName, const char *alrtSummary, const char *bodyJson)
 {
-    char mqttName[LQC_EVENT_NAME_SZ] = {0};
-    char mqttSummary[LQC_EVENT_SUMMARY_SZ] = {0};
-    char mqttTopic[TOPIC_SZ];
-    char mqttBody[LQC_EVENT_BODY_SZ]; 
+    char msgEvntName[LQC_EVENT_NAME_SZ] = {0};
+    char msgEvntSummary[LQC_EVENT_SUMMARY_SZ] = {0};
+    char msgTopic[LQMQ_TOPIC_PUB_MAXSZ];
+    char msgBody[LQMQ_MSG_MAXSZ]; 
     char eventClass[5];
 
     strncpy(eventClass, (alrtClass == lqcEventClass_application) ? "appl":"lqc", 5);
     
     if (alrtName[0] == ASCII_cNULL)
-        strncpy(mqttName, "alert", 9);
+        strncpy(msgEvntName, "alert", 9);
     else
-        strncpy(mqttName, alrtName, MIN(strlen(alrtName), LQC_EVENT_NAME_SZ-1));
+        strncpy(msgEvntName, alrtName, MIN(strlen(alrtName), LQC_EVENT_NAME_SZ-1));
 
     if (alrtSummary[0] != ASCII_cNULL)
-        snprintf(mqttSummary, LQC_EVENT_SUMMARY_SZ, "\"descr\": \"%s\",", alrtSummary);
+        snprintf(msgEvntSummary, LQC_EVENT_SUMMARY_SZ, "\"descr\": \"%s\",", alrtSummary);
 
     // "devices/%s/messages/events/mId=~%d&mV=1.0&evT=alrt&evC=%s&evN=%s"
-    snprintf(mqttTopic, MQTT_TOPIC_SZ, MQTT_MSG_D2CTOPIC_ALERT_TMPLT, g_lqCloud.deviceId, g_lqCloud.msgNm++, eventClass, mqttName);
-    snprintf(mqttBody, MQTT_MESSAGE_SZ, "{%s\"alert\": %s}", mqttSummary, bodyJson);
-    return LQC_mqttTrySend(mqttTopic, mqttBody, false);
+    snprintf(msgTopic, LQMQ_TOPIC_PUB_MAXSZ, LQMQ_MSG_D2CTOPIC_ALERT_TMPLT, g_lqCloud.deviceId, g_lqCloud.msgNm++, eventClass, msgEvntName);
+    snprintf(msgBody, LQMQ_MSG_MAXSZ, "{%s\"alert\": %s}", msgEvntSummary, bodyJson);
+    return LQC_mqttTrySend(msgTopic, msgBody, false);
 }
 
 
