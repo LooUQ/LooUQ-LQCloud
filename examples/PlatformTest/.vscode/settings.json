@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "cstdint": "cpp",
+        "core_cm0plus.h": "c",
+        "lqc-internal.h": "c"
+    }
+}

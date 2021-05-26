@@ -1,13 +1,46 @@
-//	Copyright (c) 2020 LooUQ Incorporated.
-//	Licensed under The MIT License. See LICENSE in the root directory.
+/******************************************************************************
+ *  \file lqCloud.c
+ *  \author Greg Terrell
+ *  \license MIT License
+ *
+ *  Copyright (c) 2020, 2021 LooUQ Incorporated.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to
+ * deal in the Software without restriction, including without limitation the
+ * rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+ * sell copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED
+ * "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+ * LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+ * PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+ * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ ******************************************************************************
+ * LooUQ LQCloud provides for rapid development of robust and secure IoT device
+ * applications.
+ *****************************************************************************/
 
-#define _DEBUG                          // enable PRINTF statements
-#include "lqc_internal.h"
-#include <mqtt.h>
+#define _DEBUG 2                        // set to non-zero value for PRINTF debugging output, 
+// debugging output options             // LTEm1c will satisfy PRINTF references with empty definition if not already resolved
+#if defined(_DEBUG) && _DEBUG > 0
+    asm(".global _printf_float");       // forces build to link in float support for printf
+    #if _DEBUG == 1
+    #define SERIAL_DBG 1                // enable serial port output using devl host platform serial, 1=wait for port
+    #elif _DEBUG == 2
+    #include <jlinkRtt.h>               // output debug PRINTF macros to J-Link RTT channel
+    #endif
+#else
+#define PRINTF(c_, f_, ...) ;
+#endif
 
-/* debugging output options             UNCOMMENT one of the next two lines to direct debug (PRINTF) output */
-#include <jlinkRtt.h>                   // output debug PRINTF macros to J-Link RTT channel
-// #define SERIAL_OPT 1                    // enable serial port comm with devl host (1=force ready test)
+#include <lqcloud.h>
+#include "lqc-internal.h"
 
 #define MIN(x, y) (((x)<(y)) ? (x):(y))
 #define MAX(x, y) (((x)>(y)) ? (x):(y))
@@ -37,7 +70,7 @@ static void s_cloudSenderDoWork();
  *  \param memoryStatCB [in] Callback to register with LQCloud to determine memory status, returns int.
  */
 //void lqc_create(notificationType_func appNotificationCB, pwrStatus_func pwrStatCB, battStatus_func battStatCB, memStatus_func memStatCB)
-void lqc_create(lqcResetCause_t resetCause,
+void lqc_create(lqDiagResetCause_t resetCause,
                 appNotify_func notificationCB, 
                 ntwkStart_func ntwkStartCB,
                 ntwkStop_func ntwkStopCB,
@@ -56,7 +89,7 @@ void lqc_create(lqcResetCause_t resetCause,
     g_lqCloud.batteryStatusCB = battStatCB;
     g_lqCloud.memoryStatusCB = memoryStatCB;
 
-    //PRINTFC(0,"MQTT QbufSz=%d\r", sizeof(lqcMqttQueuedMsg_t));                        // was 1964 (2021-02-24)
+    //PRINTF(0,"MQTT QbufSz=%d\r", sizeof(lqcMqttQueuedMsg_t));                        // was 1964 (2021-02-24)
     // lqcMqttQueuedMsg_t mQ[MQTTSEND_QUEUE_SZ] = calloc(1, sizeof(lqcMqttQueuedMsg_t[MQTTSEND_QUEUE_SZ]));      // create mqtt send (recovery) queue
     // *g_lqCloud.mqttQueued = mQ;
     // if (g_lqCloud.mqttQueued == NULL)
@@ -67,15 +100,15 @@ void lqc_create(lqcResetCause_t resetCause,
 }
 
 
-/**
- *	\brief Record MCU\CPU reset type in LQCloud structure.
- *
- *	\param rcause [in] The byte value reported at reset/start.
- */
-void lqc_setResetCause(lqcResetCause_t rcause)
-{
-    g_lqCloud.diagnostics.resetCause = rcause;
-}
+// /**
+//  *	\brief Record MCU\CPU reset type in LQCloud structure.
+//  *
+//  *	\param rcause [in] The byte value reported at reset/start.
+//  */
+// void lqc_setResetCause(lqDiagResetCause_t rcause)
+// {
+//     g_lqCloud.diagnostics.resetCause = rcause;
+// }
 
 
 /**
@@ -109,7 +142,7 @@ void lqc_start(const char *hubAddr, const char *deviceId, const char *sasToken, 
 
     while (!s_cloudConnectionManager(true, false))
     {
-        PRINTFC(dbgColor_white, ".");
+        PRINTF(DBGCOLOR_white, ".");
         snprintf(connectionMsg, 80, "LQC Start Retry=%d", retries);
         LQC_notifyApp(lqcNotifType_info, connectionMsg);
         lDelay(15000);
@@ -198,9 +231,8 @@ char *lqc_getDeviceShortName()
  */
 void lqc_doWork()
 {
-
-    // TODO: needs to be abstracted
-    ltem1_doWork();
+    // TODO: needs to be abstracted, currently LQCloud is tied to LTEm1\LTEmC
+    ltem_doWork();
     
     s_cloudSenderDoWork();       // internally calls mqttConnectionManager() to set-up/tear-down LQC connection
 }
@@ -237,7 +269,7 @@ void LQC_notifyApp(uint8_t notifType, const char *notifMsg)
     
 //     mqttStatus_t mqttStatus = mqtt_status("", false);
 
-//     PRINTFC(dbgColor_error, "LQC-FAULT: mqttState=%d msg=%s\r", mqttStatus, faultMsg);
+//     PRINTF(DBGCOLOR_error, "LQC-FAULT: mqttState=%d msg=%s\r", mqttStatus, faultMsg);
 //     LQC_appNotify(notificationType_hardFault, faultMsg);
 
 //     uint8_t waitForever = 1;
@@ -267,7 +299,7 @@ bool LQC_mqttTrySend(const char *topic, const char *body, bool fromQueue)
             g_lqCloud.diagnostics.publishLastFaultType = pubResult;
         g_lqCloud.diagnostics.publishDurLast = millis() - g_lqCloud.diagnostics.publishLastAt;
         g_lqCloud.diagnostics.publishDurMax = MAX(g_lqCloud.diagnostics.publishDurMax, g_lqCloud.diagnostics.publishDurLast);
-        PRINTFC(dbgColor_cyan, "MQTTtrySend:rc=%d,queued=%d,dur=%d,maxDur=%d\r", pubResult, fromQueue, g_lqCloud.diagnostics.publishDurLast, g_lqCloud.diagnostics.publishDurMax);
+        PRINTF(DBGCOLOR_cyan, "MQTTtrySend:rc=%d,queued=%d,dur=%d,maxDur=%d\r", pubResult, fromQueue, g_lqCloud.diagnostics.publishDurLast, g_lqCloud.diagnostics.publishDurMax);
     }
 
     if (pubResult == RESULT_CODE_SUCCESS && fromQueue)
@@ -281,7 +313,7 @@ bool LQC_mqttTrySend(const char *topic, const char *body, bool fromQueue)
     {
         if (g_lqCloud.mqttSendQueue[g_lqCloud.mqttQueuedHead].queuedAt != 0)                                    
         {
-            PRINTFC(dbgColor_warn, "MQTTtrySend:ovrflw\r", pubResult);
+            PRINTF(DBGCOLOR_warn, "MQTTtrySend:ovrflw\r", pubResult);
             g_lqCloud.mqttSendOverflowCnt++;                                                // tally overflow and silently drop
             return false;
         }
@@ -290,7 +322,7 @@ bool LQC_mqttTrySend(const char *topic, const char *body, bool fromQueue)
         g_lqCloud.mqttSendQueue[g_lqCloud.mqttQueuedHead].lastTryAt = lMillis();
         strncpy(g_lqCloud.mqttSendQueue[g_lqCloud.mqttQueuedHead].topic, topic, LQMQ_TOPIC_PUB_MAXSZ);
         strncpy(g_lqCloud.mqttSendQueue[g_lqCloud.mqttQueuedHead].msg, body, LQMQ_MSG_MAXSZ);
-        PRINTFC(dbgColor_warn, "MQTTtrySend:msgQueued\r");
+        PRINTF(DBGCOLOR_warn, "MQTTtrySend:msgQueued\r");
 
         g_lqCloud.mqttQueuedHead = ++g_lqCloud.mqttQueuedHead % LQMQ_SEND_QUEUE_SZ;  
     }
@@ -321,7 +353,7 @@ static void s_cloudSenderDoWork()
 
             if (readyToSend)
             {
-                PRINTFC(dbgColor_dCyan, "RecoverySend retries=%d--", g_lqCloud.mqttSendQueue[g_lqCloud.mqttQueuedTail].retries);
+                PRINTF(DBGCOLOR_dCyan, "RecoverySend retries=%d--", g_lqCloud.mqttSendQueue[g_lqCloud.mqttQueuedTail].retries);
                 g_lqCloud.diagnostics.publishRetryMax = MAX(g_lqCloud.diagnostics.publishRetryMax, g_lqCloud.mqttSendQueue[g_lqCloud.mqttQueuedTail].retries);
 
                 LQC_mqttTrySend(g_lqCloud.mqttSendQueue[g_lqCloud.mqttQueuedTail].topic,
@@ -345,14 +377,14 @@ static void s_cloudReceiver(const char *topic, const char *topicProps, const cha
     keyValueDict_t mqttProps = lqc_createDictFromQueryString(topicProps, strlen(topicProps));
 
     #ifdef _DEBUG
-    PRINTF(dbgColor_info, "\r**MQTT--MSG** @tick=%d\r", lMillis());
-    PRINTF(dbgColor_cyan, "\rt(%d): %s", strlen(topic), topic);
-    PRINTF(dbgColor_cyan, "\rp(%d): %s", strlen(topicProps), topicProps);
-    PRINTF(dbgColor_cyan, "\rm(%d): %s", strlen(msgBody), msgBody);
-    PRINTF(dbgColor_info, "\rProps(%d)\r", mqttProps.count);
+    PRINTF(DBGCOLOR_info, "\r**MQTT--MSG** @tick=%d\r", lMillis());
+    PRINTF(DBGCOLOR_cyan, "\rt(%d): %s", strlen(topic), topic);
+    PRINTF(DBGCOLOR_cyan, "\rp(%d): %s", strlen(topicProps), topicProps);
+    PRINTF(DBGCOLOR_cyan, "\rm(%d): %s", strlen(msgBody), msgBody);
+    PRINTF(DBGCOLOR_info, "\rProps(%d)\r", mqttProps.count);
     for (size_t i = 0; i < mqttProps.count; i++)
     {
-        PRINTF(dbgColor_cyan, "%s=%s\r", mqttProps.keys[i], mqttProps.values[i]);
+        PRINTF(DBGCOLOR_cyan, "%s=%s\r", mqttProps.keys[i], mqttProps.values[i]);
     }
     PRINTF(0, "\r");
     #endif
@@ -382,7 +414,7 @@ static bool s_cloudConnectionManager(bool forceConnect, bool resetConnection)
     bool performDisconnect = false;
     bool isReady = false;
 
-    //PRINTFC(0, "CloudConnMgr force=%d, reset=%d\r", forceConnect, resetConnection);
+    //PRINTF(0, "CloudConnMgr force=%d, reset=%d\r", forceConnect, resetConnection);
 
     lqcConnectState_t connState = lqc_getConnectState("", forceConnect);
     performConnect = forceConnect && connState != lqcConnectState_ready;

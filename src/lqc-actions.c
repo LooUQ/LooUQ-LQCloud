@@ -1,12 +1,49 @@
-//	Copyright (c) 2020 LooUQ Incorporated.
-//	Licensed under The MIT License. See LICENSE in the root directory.
+/******************************************************************************
+ *  \file lqc-alerts.c
+ *  \author Greg Terrell
+ *  \license MIT License
+ *
+ *  Copyright (c) 2020, 2021 LooUQ Incorporated.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to
+ * deal in the Software without restriction, including without limitation the
+ * rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+ * sell copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED
+ * "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+ * LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+ * PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+ * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ ******************************************************************************
+ * LooUQ LQCloud Client Device Actions (command) Services
+ *****************************************************************************/
 
-#define _DEBUG
-#include "lqc_internal.h"
+#include <jlinkRtt.h>                   // if you have issues with Intellisense on PRINTF() or DBGCOLOR_ try temporarily placing jlinkRtt.h outside conditional
+                                        // or add "_DEBUG = 2" to c_cpp_properties.json "defines" section list
 
-// debugging output options             UNCOMMENT one of the next two lines to direct debug (PRINTF) output
-#include <jlinkRtt.h>                   // output debug PRINTF macros to J-Link RTT channel
-// #define SERIAL_OPT 1                    // enable serial port comm with devl host (1=force ready test)
+#define _DEBUG 2                        // set to non-zero value for PRINTF debugging output, 
+// debugging output options             // LTEm1c will satisfy PRINTF references with empty definition if not already resolved
+#if defined(_DEBUG) && _DEBUG > 0
+    asm(".global _printf_float");       // forces build to link in float support for printf
+    #if _DEBUG == 1
+    #define SERIAL_DBG 1                // enable serial port output using devl host platform serial, 1=wait for port
+    #elif _DEBUG == 2
+    #include <jlinkRtt.h>               // output debug PRINTF macros to J-Link RTT channel
+    #endif
+#else
+#define PRINTF(c_, f_, ...) ;
+#endif
+
+
+#include <lqcloud.h>
+#include "lqc-internal.h"
 
 extern lqCloudDevice_t g_lqCloud;
 
@@ -103,7 +140,7 @@ void LQC_processActionRequest(const char *actnName, keyValueDict_t mqttProps, co
     {
         lqc_getDictValue("evC", mqttProps, eventClass, 8);
 
-        if (strcmp(eventClass, "appl") == 0)
+        if (strcmp(eventClass, "app") == 0)
         {
             tryAsApplAction(actnName, appKey, msgBody);
         }
@@ -152,7 +189,7 @@ void LQC_processActionRequest(const char *actnName, keyValueDict_t mqttProps, co
  */
 static void tryAsApplAction(const char *actnName, const char *actnKey, const char *actionMsgBody)
 {
-    PRINTF(dbgColor_dGreen, "ApplAction: %s\r", actnName);
+    PRINTF(DBGCOLOR_dGreen, "ApplAction: %s\r", actnName);
     lqcJsonPropValue_t paramsProp = lqc_getJsonPropValue(actionMsgBody, "params");
     keyValueDict_t actnParams = lqc_createDictFromQueryString(paramsProp.value, paramsProp.len);
 
@@ -195,7 +232,7 @@ static void actionResponse(lqcEventClass_t eventClass, const char *eventName, ui
     char mqttTopic[LQMQ_TOPIC_PUB_MAXSZ];
     char actnClass[LQC_EVNTCLASS_SZ];
 
-    PRINTFC(0, "ActnRespBodySz=%d\r", strlen(responseBody));
+    PRINTF(0, "ActnRespBodySz=%d\r", strlen(responseBody));
 
     strncpy(actnClass, (eventClass == lqcEventClass_application) ? "appl":"lqc", 5);
     g_lqCloud.msgNm++;
@@ -278,7 +315,7 @@ static void diagInfoResponse(keyValueDict_t params)
 
     bool resetDiags = false;
     lqc_getDictValue("reset", params, kValue, KVALUESZ);
-    PRINTF(dbgColor_cyan, "resetDiags: %s\r", kValue);
+    PRINTF(DBGCOLOR_cyan, "resetDiags: %s\r", kValue);
     resetDiags = atoi(kValue);
 
     snprintf(body, LQC_EVENT_BODY_SZ, "{\"getdiag\":{\"rCause\":\"%d\",\"pubLstAt\":\"%d\",\"pubLstFlt\":%d,\"pubDurLst\":%d,\"pubDurMax\":%d,\"retryMax\":%d,\"connResets\":%d}}",
@@ -314,7 +351,7 @@ static void setDeviceNameResponse(keyValueDict_t params)
     char body[LQMQ_MSG_MAXSZ] = {0};
 
     lqc_getDictValue("name", params, kValue, KVALUESZ);
-    PRINTF(dbgColor_cyan, "dvc name: %s\r", kValue);
+    PRINTF(DBGCOLOR_cyan, "dvc name: %s\r", kValue);
 
     uint8_t kValLen = strlen(kValue);
 
@@ -328,7 +365,7 @@ static void setDeviceNameResponse(keyValueDict_t params)
         strncpy(g_lqCloud.deviceName, kValue, LQC_DEVICENAME_SZ);
 
     actionResponse(lqcEventClass_lqcloud, "setdname", ACTION_RESULT_SUCCESS, g_lqCloud.deviceName);
-    PRINTF(dbgColor_info, "Local name: %s\r", g_lqCloud.deviceName);
+    PRINTF(DBGCOLOR_info, "Local name: %s\r", g_lqCloud.deviceName);
 }
 
 #pragma endregion

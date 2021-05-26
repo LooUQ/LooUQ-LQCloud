@@ -3,7 +3,7 @@
  *  \author Greg Terrell
  *  \license MIT License
  *
- *  Copyright (c) 2020 LooUQ Incorporated.
+ *  Copyright (c) 2020, 2021 LooUQ Incorporated.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -27,14 +27,21 @@
 #ifndef __LQCLOUD_H__
 #define __LQCLOUD_H__
 
-#include <ltem1c.h>
-#include "lqc_collections.h"
+#include <ltemc.h>                          // TODO remove this dependency
+
+#include "lqTypes.h"
+#include "lqc-collections.h"
+#include "lqDiagnostics.h"
 
 // #include "lqc_telemetry.h"
 // #include "lqc_actions.h"
 // #include "lqc_alerts.h"
 // #include "lqc_wrkTime.h"
 // #include "lqc_json.h"
+
+#define LQiBLOCK_MAGIC 0x100c
+#define LQiBLOCK_ID_LQCDEVICE 201
+
 
 #define KEYVALUE_DICT_CNT 15
 
@@ -62,6 +69,8 @@
 
 #define LQCCONN_ONDEMAND_CONNDURATION 120                   ///< period in seconds an on-demand connection stays open 
 #define LCQCONN_REQUIRED_RETRYINTVL 10000                   ///< period in millis between required connectivity connect attemps
+
+
 
 /* FROM LTEm1c:mqtt.h
  * --------------------------------------------------------------------------------------------- */
@@ -224,21 +233,10 @@ typedef enum batteryWarning_tag
 }  batteryWarning_t;
 
 
-typedef enum lqcResetCause_tag
-{
-    lqcResetCause_powerOn = 1,
-    lqcResetCause_pwrCore = 2,
-    lqcResetCause_pwrPeriph = 4,
-    lqcResetCause_nvm = 8,
-    lqcResetCause_external = 16,
-    lqcResetCause_watchdog = 32,
-    lqcResetCause_system = 64,
-    lqcResetCause_backup = 128
-} lqcResetCause_t;
-
-
 typedef struct lqcDeviceConfig_tag
 {
+    uint32_t iBlockMagic;
+    uint8_t iBlockId;
     char deviceName[LQC_DEVICENAME_SZ];
     char deviceId[LQC_DEVICEID_SZ];
     char url[LQC_URL_SZ];
@@ -305,7 +303,7 @@ extern "C"
 #endif
 
 
-void lqc_create(lqcResetCause_t resetCause,
+void lqc_create(lqDiagResetCause_t resetCause,
                 appNotify_func appNotifyCB, 
                 ntwkStart_func ntwkStartCB,
                 ntwkStop_func ntwkStopCB,
@@ -342,6 +340,7 @@ bool wrkTime_isElapsed(millisTime_t timerVal, millisDuration_t duration);
 
 
 // // helpers
+void sendLqDiagnostics(const char *deviceName, lqDiagInfo_t *diagInfo);
 keyValueDict_t lqc_parseQueryStringDict(char *dictSrc);
 // char *lqc_getActionParamValue(const char *paramName, keyValueDict_t actnParams);
 // lqcJsonProp_t lqc_getJsonProp(const char *jsonSrc, const char *propName);

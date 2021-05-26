@@ -1,29 +1,58 @@
 /******************************************************************************
- *  \file LQCloud-PlatformTest.ino
+ *  \file PlatformTest.ino
  *  \author Greg Terrell
+ *  \license MIT License
  *
- *  \copyright Copyright (c) 2020 LooUQ Incorporated. 
- *             Copyright (c) 2020 CloudMelt, LLC.
+ *  Copyright (c) 2020, 2021 LooUQ Incorporated.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to
+ * deal in the Software without restriction, including without limitation the
+ * rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+ * sell copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED
+ * "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+ * LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+ * PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+ * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
  ******************************************************************************
- * 
+ * Perform a continous test of a LooUQ LQCloud instance. Demonstrates a typical
+ * LTEmC (LTEm1 IoT modem) application for MQTT applications and a reference 
+ * design of a LQCloud device application with telemetry, alerts and actions.
  *****************************************************************************/
 
+#include <jlinkRtt.h>                   // if you have issues with Intellisense on PRINTF() or DBGCOLOR_ try temporarily placing jlinkRtt.h outside conditional
+                                        // or add "_DEBUG = 2" to c_cpp_properties.json "defines" section list
+
+#define _DEBUG 2                        // set to non-zero value for PRINTF debugging output, 
+// debugging output options             // LTEm1c will satisfy PRINTF references with empty definition if not already resolved
+#if defined(_DEBUG) && _DEBUG > 0
+    asm(".global _printf_float");       // forces build to link in float support for printf
+    #if _DEBUG == 1
+    #define SERIAL_DBG 1                // enable serial port output using devl host platform serial, 1=wait for port
+    #elif _DEBUG == 2
+    #include <jlinkRtt.h>               // output debug PRINTF macros to J-Link RTT channel
+    #endif
+#else
+#define PRINTF(c_, f_, ...) ;
+#endif
+
+// define options for how to assemble this build
 #define HOST_FEATHER_UXPLOR             // specify the pin configuration
 
-#define _DEBUG                          // commment out to disable PRINTF expansion to statements // PER SOURCE TRANSLATION UNIT 
-#include <ltem1c.h>
-#include <lqCloud.h>
-// debugging output options             UNCOMMENT one of the next two lines to direct debug (PRINTF) output
-#include <jlinkRtt.h>                   // output debug PRINTF macros to J-Link RTT channel
-// #define SERIAL_OPT 1                    // enable serial port comm with devl host (1=force ready test)
-
+#include <ltemc.h>
+#include <lqcloud.h>
 #include "dvcSettings.h"
-
+#include "lqDiagnostics.h"
 
 // using Adafruit's CPP package for watchdog, TODO C99 version
 #include <Adafruit_SleepyDog.h>         // watchdog support
-
 #include <Adafruit_NeoPixel.h>
 
 
@@ -62,6 +91,7 @@ Adafruit_NeoPixel neo(1, NEO_PIN, NEO_GRB + NEO_KHZ800);
 #endif
 
 
+lqDiagInfo_tag lqDiagInfo __attribute__ ((section (".noinit")));
 
 /* setup() 
  * --------------------------------------------------------------------------------------------- */
@@ -76,15 +106,14 @@ void setup() {
         #endif
     #endif
 
-    PRINTF(dbgColor_error, "LooUQ Cloud - CloudTest\r");
-    lqcResetCause_t resetCause = (lqcResetCause_t)Watchdog.resetCause();
-    PRINTFC(dbgColor_magenta,"RCause=%d \r", resetCause);
+    PRINTF(DBGCOLOR_red, "LooUQ Cloud - CloudTest\r");
+    lqDiagResetCause_t resetCause = (lqDiagResetCause_t)Watchdog.resetCause();
+    PRINTF(DBGCOLOR_magenta,"RCause=%d \r", resetCause);
 
     // device application setup and initialization
     pinMode(buttonPin, INPUT);                          // feather uses pin=9 for battery voltage divider, floats at ~2v
     pinMode(ledPin, OUTPUT);
     digitalWrite(ledPin, HIGH);                         // off
-    asm(".global _printf_float");                       // forces build to link in float support for printf
 
     #ifdef ENABLE_NEOPIXEL
     neo.begin();                                        // using feather NEO as a "status" indicator
@@ -93,7 +122,7 @@ void setup() {
     neo.show();
     #endif
 
-    ltem1_create(ltem1_pinConfig, appNotifRecvr);
+    ltem_create(ltem_pinConfig, appNotifCB);
     mqtt_create();
 
     // since the LQCloud deviceId is the LTEm1 modem's IMEI, the application needs to start the network.
@@ -101,7 +130,7 @@ void setup() {
 
     /* Add LQCloud to project and register local service callbacks.
      * ----------------------------------------------------------------------------------------- */
-    lqc_create(resetCause, appNotifRecvr, networkStart, networkStop, NULL, getBatteryStatus, getFreeMemory);
+    lqc_create(resetCause, appNotifCB, networkStart, networkStop, NULL, getBatteryStatus, getFreeMemory);
     /* Callbacks
      * - cloudNotificationsHandler: cloud informs app of events
      * - networkStart:
@@ -112,9 +141,9 @@ void setup() {
     */
 
     //lqc_start(LQCLOUD_URL, DEVICEID, LQCLOUD_SASTOKEN, "");
-    lqc_start(LQCLOUD_URL, mdminfo_ltem1().imei, LQCLOUD_SASTOKEN, "");
+    lqc_start(LQCLOUD_URL, mdminfo_ltem().imei, LQCLOUD_SASTOKEN, "");
 
-    PRINTF(dbgColor_info, "Connected to LQ Cloud, Device started.\r");
+    PRINTF(DBGCOLOR_info, "Connected to LQ Cloud, Device started.\r");
 
     sendTelemetry_intvl = wrkTime_create(PERIOD_FROM_SECONDS(30));      // this application sends telemetry continuously every 30 secs
     alert_intvl = wrkTime_create(PERIOD_FROM_MINUTES(60));              // and a periodic alert every 60 min
@@ -124,7 +153,7 @@ void setup() {
      * setup has already registered yield callback with LTEm1c to handle longer running network actions
      */
     uint16_t wdtDuration = Watchdog.enable();                           // default = 16 seconds
-    PRINTFC(dbgColor_warn, "WDT Duration=%d\r\r", wdtDuration);
+    PRINTF(DBGCOLOR_warn, "WDT Duration=%d\r\r", wdtDuration);
 
     // status: init completed.
     #ifdef ENABLE_NEOPIXEL
@@ -143,12 +172,12 @@ void loop()
     {
         char alrtSummary[40];
         snprintf(alrtSummary, 40, "Periodic Alert, Loop=%d", loopCnt);
-        PRINTF(dbgColor_magenta, "Sending periodic alert.\r");
+        PRINTF(DBGCOLOR_magenta, "Sending periodic alert.\r");
         lqc_sendAlert("cloudTest-periodic-alert", "PeriodicAlert", alrtSummary);
     }
     if (wrkTime_doNow(&sendTelemetry_intvl))
     {
-        PRINTF(dbgColor_dMagenta, "\rLoop=%i>>\r", loopCnt);
+        PRINTF(DBGCOLOR_dMagenta, "\rLoop=%i>>\r", loopCnt);
 
         char summary[SUMMARY_SZ] = {0};
         char body[BODY_SZ] = {0};
@@ -157,7 +186,7 @@ void loop()
 
         bool thisSend = lqc_sendTelemetry("LQ CloudTest", summary, body);
         if (!thisSend && !lastSend)
-             appNotifRecvr(lqcNotifType_hardFault, "Successive send errors");
+             appNotifCB(lqcNotifType_hardFault, "Successive send errors");
         lastSend = thisSend;
 
         loopCnt++;
@@ -169,7 +198,7 @@ void loop()
         int bttn = digitalRead(buttonPin);
         if (digitalRead(buttonPin) == LOW)
         {
-            PRINTFC(dbgColor_info, "\rUser ReqstAlert Button Pressed\r");
+            PRINTF(DBGCOLOR_info, "\rUser ReqstAlert Button Pressed\r");
             lqc_sendAlert("cloudTest-user-alert", "UserAlert", "\"User signaled\"");
         }
     }
@@ -197,17 +226,18 @@ void loop()
   (power on/off). If LQCloud repeated send retries it will utilize a stop/start sequence to reset the transport.
   These functions should be constructed to block until their function is complete before returning to LQCloud.
 
-  Note: networkStart() returns bool indicating if the network started. Function "complete" is when the function can
-  determine the network state. If returning false, LQC will retry as required.
+  Note: networkStart() returns bool indicating if the network started. Function should return true "complete", when 
+  the network transport state is ready for communications. If returning false, LQC will retry as required.
 ========================================================================================================================= */
 
 // lqcNtwkStart_func >> typedef bool (*lqcNtwkStart_func)()
+
 bool networkStart()
 {
-    if (ltem1_getReadyState() != qbg_readyState_appReady)
-        ltem1_start(ltem1Protocols_mqtt);                   // validates protocols, powers on modem (standard power profile) and starts processing
+    if (ltem_getReadyState() != qbg_readyState_appReady)
+        ltem_start(pdpProtocol_mqtt);                   // validates protocols, powers on modem (standard power profile) and starts processing
 
-    PRINTFC(dbgColor_none, "Waiting on network...\r");
+    PRINTF(DBGCOLOR_none, "Waiting on network...\r");
     networkOperator_t networkOp;
 
     networkOp = ntwk_awaitOperator(30000);
@@ -224,11 +254,11 @@ bool networkStart()
             ntwk_activatePdpContext(VERIZON_DATA_CONTEXT);  // Verizon IP data on ContextId = 1
         }
         pdpCntxt_t *pdpCntxt = ntwk_getPdpCntxt(1);
-        PRINTFC(dbgColor_white, "PDP Context=1, IPaddr=%s\r", pdpCntxt->ipAddress);
+        PRINTF(DBGCOLOR_white, "PDP Context=1, IPaddr=%s\r", pdpCntxt->ipAddress);
     }
     if (strlen(networkOp.operName) > 0)
     {
-        PRINTFC(dbgColor_white, "Network type is %s on %s\r", networkOp.ntwkMode, networkOp.operName);
+        PRINTF(DBGCOLOR_white, "Network type is %s on %s\r", networkOp.ntwkMode, networkOp.operName);
         return true;
     }
     return false;
@@ -236,25 +266,26 @@ bool networkStart()
 
 
 // lqcNtwkStop_func >> typedef void (*lqcNtwkStop_func)()
+
 void networkStop()
 {
-    ltem1_reset();
+    ltem_reset();
 }
 
 
 /* Application "other" Callbacks
 ========================================================================================================================= */
 
-void appNotifRecvr(uint8_t notifType, const char *notifMsg)
+void appNotifCB(uint8_t notifType, const char *notifMsg)
 {
     switch (notifType)
     {
         case lqcNotifType_info:
-            PRINTFC(dbgColor_info, "LQCloud Info: %s\r", notifMsg);
+            PRINTF(DBGCOLOR_info, "LQCloud Info: %s\r", notifMsg);
             return;
 
         case lqcNotifType_connect:
-            PRINTFC(dbgColor_info, "LQCloud Connected\r");
+            PRINTF(DBGCOLOR_info, "LQCloud Connected\r");
             #ifdef ENABLE_NEOPIXEL
                 neo.setPixelColor(0, 0, 255, 0);        // green
                 neo.show();
@@ -262,7 +293,7 @@ void appNotifRecvr(uint8_t notifType, const char *notifMsg)
             return;
 
         case lqcNotifType_disconnect:
-            PRINTFC(dbgColor_warn, "LQCloud Attempting Connect\r");
+            PRINTF(DBGCOLOR_warn, "LQCloud Attempting Connect\r");
             #ifdef ENABLE_NEOPIXEL
                 neo.setPixelColor(0, 255, 0, 255);       // magenta
                 neo.show();
@@ -272,13 +303,24 @@ void appNotifRecvr(uint8_t notifType, const char *notifMsg)
 
     if (notifType > lqcNotifType__CATASTROPHIC)
     {
-        PRINTFC(dbgColor_error, "LQCloud-HardFault: %s\r", notifMsg);
+        PRINTF(DBGCOLOR_error, "LQCloud-HardFault: %s\r", notifMsg);
         // update local indicators like LEDs, OLED, etc.
         #ifdef ENABLE_NEOPIXEL
             neo.setPixelColor(0, 255, 0, 0);        // red
             neo.show();
         #endif
-        while (true) {}
+
+        // LQ Diagnostics Structure
+
+        lqDiagInfo.notifCd = notifType;
+        memcpy(lqDiagInfo.notifMsg, notifMsg, 20);
+        lqDiagInfo.applProtoState = lqc_getConnectState("", false);         // get MQTT state 
+        // now gather data requiring functioning LTEm1 driver
+        lqDiagInfo.ntwkProtoState = (ntwk_getPdpCntxt(1) == NULL) ? 0 : 1;
+        lqDiagInfo.applProtoState = lqc_getConnectState("", true);          // now force read MQTT state from transport
+
+        //NVIC_SystemReset();
+        while (true) {}                                                     // should never get here
     }
 }
 
@@ -349,7 +391,7 @@ int getFreeMemory()
 static const char *getStatus_params = { "" };
 static void getStatus(keyValueDict_t params)
 {
-    PRINTF(dbgColor_cyan, "CM-RMT_getStatus: ");
+    PRINTF(DBGCOLOR_cyan, "CM-RMT_getStatus: ");
 
     const char *state = "off";
     double loadI = 9.9;
@@ -370,7 +412,7 @@ static void setLedState(keyValueDict_t params)
     char kValue[KVALUESZ] = {0};
 
     lqc_getDictValue("ledState", params, kValue, KVALUESZ);
-    PRINTF(dbgColor_cyan, "setledState: %s\r", kValue);
+    PRINTF(DBGCOLOR_cyan, "setledState: %s\r", kValue);
 
     if (kValue[0] == '1')
         digitalWrite(ledPin, LOW);  // ON
@@ -423,7 +465,7 @@ static void doFlashLed(keyValueDict_t params)
     uint16_t cycleDuration = flashes * 2 * cycleMillis;
     if (cycleDuration > 5000)
     {
-        PRINTF(dbgColor_cyan, "doLampFlash: flashes=%i, cycleMs=%i\r", flashes, cycleMillis);
+        PRINTF(DBGCOLOR_cyan, "doLampFlash: flashes=%i, cycleMs=%i\r", flashes, cycleMillis);
         lqc_sendActionResponse(RESULT_CODE_BADREQUEST, "Flashing event is too long, 5 seconds max.");
     }
 
@@ -435,7 +477,7 @@ static void doFlashLed(keyValueDict_t params)
         flashesRemaining = flashes;                     // this will count down, 0 = complete
     }
 
-    PRINTF(dbgColor_cyan, "doLampFlash: flashes=%i, cycleMs=%i\r", flashes, cycleMillis);
+    PRINTF(DBGCOLOR_cyan, "doLampFlash: flashes=%i, cycleMs=%i\r", flashes, cycleMillis);
     // the "flash LED" process is now started, return to the main loop and handle the flashing in applWork_doFlashLed() below.
 }
 
@@ -464,7 +506,7 @@ void applWork_doFlashLed()
 
         if (flashesRemaining == 0)
         {
-            PRINTF(dbgColor_cyan, "doLampFlash Completed\r");
+            PRINTF(DBGCOLOR_cyan, "doLampFlash Completed\r");
             lqc_sendActionResponse(RESULT_CODE_SUCCESS, "");   // flash action completed sucessfully
         }
     }

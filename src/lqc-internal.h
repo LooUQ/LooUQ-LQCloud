@@ -27,7 +27,7 @@
 #ifndef __LQC_INTERNAL_H__
 #define __LQC_INTERNAL_H__
 
-#include <lqCloud.h>
+// #include <lqcloud.h>
 
 
 // #define TOPIC_SZ 201
@@ -90,7 +90,7 @@ typedef struct lqcApplAction_tag
 
 typedef struct lqcDiagnostics_tag       ///< Note: diagnostic counters below can be optionally reset with remote action
 {
-    lqcResetCause_t resetCause;         ///< Reset cause for last system start, enum is same as Microchip SAMD51 (superset of SAMD21)
+    lqDiagResetCause_t resetCause;      ///< Reset cause for last system start, enum is same as Microchip SAMD51 (superset of SAMD21)
     millisTime_t publishLastAt;         ///< Millis count for last send operation.
     uint8_t publishLastFaultType;       ///< If send D2C msg fails, message type. 
     uint16_t publishDurLast;            ///< Duration (in millis) of last mqtt publish operation
