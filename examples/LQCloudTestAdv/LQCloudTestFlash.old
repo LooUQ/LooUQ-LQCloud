@@ -1,5 +1,5 @@
 /******************************************************************************
- *  \file PlatformTest.ino
+ *  \file LQCloudTest.ino
  *  \author Greg Terrell
  *  \license MIT License
  *
@@ -22,13 +22,35 @@
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
  ******************************************************************************
- * Perform a continous test of a LooUQ LQCloud instance. Demonstrates a typical
- * LTEmC (LTEm1 IoT modem) application for MQTT applications and a reference 
- * design of a LQCloud device application with telemetry, alerts and actions.
+ * Perform a continous test of a LooUQ LQCloud instance. 
+ * Demonstrates a typical LTEmC (LTEm1 IoT modem) application for MQTT 
+ * applications and a reference design of a LQCloud device application with 
+ * telemetry, alerts and actions.
+ * 
+ * This application runs continuously at LooUQ's lab, on a UXplor Feather 
+ * board equipted with a LED and a push-button to demonstrate:
+ * - LQCloud actions (cloud API for LED on\off\flash)
+ * - LQCloud alerts (alert cloud on button press)
  *****************************************************************************/
 
-#include <jlinkRtt.h>                   // if you have issues with Intellisense on PRINTF() or DBGCOLOR_ try temporarily placing jlinkRtt.h outside conditional
-                                        // or add "_DEBUG = 2" to c_cpp_properties.json "defines" section list
+/* --------------------------------------------------------------------------------------------------------------------
+SAS Token = "HostName=iothub-dev-pelogical.azure-devices.net;DeviceId=867198053224766;SharedAccessSignature=SharedAccessSignature sr=iothub-dev-pelogical.azure-devices.net%2Fdevices%2F867198053224766&sig=ELVFxX6sax%2BnKxN8srj7MDNAmhtSive8cKUXf454SwM%3D&se=1624733971"
+
+// Azure Connection Script
+
+    AT+QSSLCFG="sslversion",5,3
+    AT+QMTCFG="ssl",5,1,0
+    AT+QMTCFG="version",5,4
+    AT+QMTOPEN=5,"iothub-dev-pelogical.azure-devices.net",8883
+
+    at+qmtconn=5,"867198053224766","iothub-dev-pelogical.azure-devices.net/867198053224766/?api-version=2018-06-30","SharedAccessSignature sr=iothub-dev-pelogical.azure-devices.net%2Fdevices%2F867198053224766&sig=ELVFxX6sax%2BnKxN8srj7MDNAmhtSive8cKUXf454SwM%3D&se=1624733971"
+
+    at+qmtsub=5,99,"devices/867198053224766/messages/devicebound/#",1
+-------------------------------------------------------------------------------------------------------------------- */
+
+
+// #include <jlinkRtt.h>                   // if you have issues with Intellisense on PRINTF() or DBGCOLOR_ try temporarily placing jlinkRtt.h outside conditional
+//                                         // or add "_DEBUG=2" to c_cpp_properties.json "defines" section list
 
 #define _DEBUG 2                        // set to non-zero value for PRINTF debugging output, 
 // debugging output options             // LTEm1c will satisfy PRINTF references with empty definition if not already resolved
@@ -37,24 +59,58 @@
     #if _DEBUG == 1
     #define SERIAL_DBG 1                // enable serial port output using devl host platform serial, 1=wait for port
     #elif _DEBUG == 2
-    #include <jlinkRtt.h>               // output debug PRINTF macros to J-Link RTT channel
+    #include <jlinkRtt.h>                   // output debug PRINTF macros to J-Link RTT channel
     #endif
 #else
 #define PRINTF(c_, f_, ...) ;
 #endif
 
 // define options for how to assemble this build
-#define HOST_FEATHER_UXPLOR             // specify the pin configuration
+#define HOST_FEATHER_UXPLOR                 // specify the pin configuration
+#define ORGANIZATION_KEY "PLeBi9Qc9XpB"     // organization key used to validate configuration and binary files
+
+#include <lq-SAMDdiag.h>
+#include <lq-SAMDcore.h>
+// LooUQ Common Resources
+#include <lq-collections.h>
+#include <lq-wrkTime.h>
 
 #include <ltemc.h>
 #include <lqcloud.h>
-#include "dvcSettings.h"
-#include "lqDiagnostics.h"
 
-// using Adafruit's CPP package for watchdog, TODO C99 version
-#include <Adafruit_SleepyDog.h>         // watchdog support
+// using Feather's on-board NeoPixel indicator
 #include <Adafruit_NeoPixel.h>
 
+// Configuration persistence with flash services
+#include <SPI.h>                        
+#include <Adafruit_SPIFlashBase.h>          // Adafruit SPI Flash extensions
+#include <lq-flashDictionary.h>             // LooUQ flashDictionary struct persistence
+#include <lq-cnfgPkgSrvcClient.h>           // Support for over-the-air update to flashDictionary items 
+
+
+/* create a global diagnostic info struct with a storage class (linker section) of noinit
+ * The noinit section is at the end of BSS but not "zeroed out" at system start. This allows the
+ * information written there to survive a restart, as long as power is maintained.
+ * 
+ * Note: The load file (aka linker script) provided by Adafruit as a Arduino board package doesn't support this and 
+ * will need to be modified. See answers.loouq.com for instructions.
+*/
+lqDiagnostic_t g_diagnosticInfo __attribute__ ((section (".noinit")));          // create a place to store diagnostics
+
+
+Adafruit_FlashTransport_SPI flashTransport(EXTERNAL_FLASH_USE_CS, EXTERNAL_FLASH_USE_SPI);
+
+// #if defined(EXTERNAL_FLASH_USE_QSPI)
+// Adafruit_FlashTransport_QSPI flashTransport;
+// #elif defined(EXTERNAL_FLASH_USE_SPI)
+// Adafruit_FlashTransport_SPI flashTransport(EXTERNAL_FLASH_USE_CS, EXTERNAL_FLASH_USE_SPI);
+// #else
+// #error No QSPI/SPI flash are defined on your board variant.h !
+// #endif
+Adafruit_SPIFlashBase flash(&flashTransport);
+lq_flashDictionary flashDictionary(&flash);
+lq_configPkgSrvc cnfgPkgSrvc("deviceservices-dev-pelogical.eastus.cloudapp.azure.com", 10100, &flashDictionary);
+lqcDeviceConfig_t lqcDeviceConfig;
 
 #define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
 #define VERIZON_DATA_CONTEXT 1
@@ -64,7 +120,7 @@
 
 #define ENABLE_NEOPIXEL
 #define NEO_PIN 8
-#define NEO_BRIGHTNESS 5                // brightness: 0-255: Note these things are bright, so <10 is visible
+#define NEO_BRIGHTNESS 10               // brightness: 0-255: Note these things are bright, so <10 is visible
 
 /* -------------------------------------------------------------------------------------------------------------------- */
 
@@ -79,19 +135,16 @@ uint16_t loopCnt = 1;
 wrkTime_t sendTelemetry_intvl;
 wrkTime_t alert_intvl;
 
-// example action doLedFlash: has a worker function to do the work without blocking
-wrkTime_t ledFlash_intvl;
+// CloudTest EXAMPLE action doLedFlash: has a worker function to do the work without blocking
 // and a counter shared by the "start" function and the "do work" function.
+wrkTime_t ledFlash_intvl;
 uint8_t flashesRemaining;
-
 
 // NEOPixel display
 #ifdef ENABLE_NEOPIXEL
-Adafruit_NeoPixel neo(1, NEO_PIN, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel neo(1, NEO_PIN);
 #endif
 
-
-lqDiagInfo_tag lqDiagInfo __attribute__ ((section (".noinit")));
 
 /* setup() 
  * --------------------------------------------------------------------------------------------- */
@@ -107,8 +160,7 @@ void setup() {
     #endif
 
     PRINTF(DBGCOLOR_red, "LooUQ Cloud - CloudTest\r");
-    lqDiagResetCause_t resetCause = (lqDiagResetCause_t)Watchdog.resetCause();
-    PRINTF(DBGCOLOR_magenta,"RCause=%d \r", resetCause);
+    PRINTF(DBGCOLOR_magenta,"RCause=%d \r", lqDiag_init());
 
     // device application setup and initialization
     pinMode(buttonPin, INPUT);                          // feather uses pin=9 for battery voltage divider, floats at ~2v
@@ -118,19 +170,32 @@ void setup() {
     #ifdef ENABLE_NEOPIXEL
     neo.begin();                                        // using feather NEO as a "status" indicator
     neo.setBrightness(NEO_BRIGHTNESS);                  // dim globally to use uint8 (0..255) values for RGB
-    neo.setPixelColor(0, 0, 0, 255);                    // blue at start
+    neo.setPixelColor(0, 10, 10, 10);                    // blue at start
     neo.show();
     #endif
 
-    ltem_create(ltem_pinConfig, appNotifCB);
-    mqtt_create();
+    if (!flash.begin())                                 // Initialize flash library and check flash chip ID.
+    {
+        PRINTF(DBGCOLOR_error, "Error, failed to initialize flash chip!");
+        while(1) yield();
+    }
+    PRINTF(DBGCOLOR_blue,"Flash chip JEDEC ID: %x\r", flash.getJEDECID());
 
-    // since the LQCloud deviceId is the LTEm1 modem's IMEI, the application needs to start the network.
-    networkStart();
+    ltem_create(ltem_pinConfig, appNotifCB);    // create modem reference
+    sckt_create();                              // add sockets protocol for over-the-air update service
+    mqtt_create();                              // add mqtt protocol for main LQCloud connectivity (mqtt required for cmd actions)
+    networkStart();                             // since the LQCloud deviceId is the LTEm1 modem's IMEI, the application needs to start the network.
+
+
+    if (cnfgPkgSrvc.CheckFetch(LOOUQ_FLASHDICTKEY__LQCDEVICE, &lqcDeviceConfig, sizeof(lqcDeviceConfig), lqcConfigParser))
+         appNotifCB(lqcNotifType_hardFault, "Config missing");
+
+    // if (flashDictionary.find(LOOUQ_FLASHDICTKEY__LQCDEVICE, &lqcDeviceConfig, sizeof(lqcDeviceConfig)) == FLASHDICT_KEYNOTFOUND)
+    //     appNotifCB(lqcNotifType_hardFault, "Config missing");
 
     /* Add LQCloud to project and register local service callbacks.
      * ----------------------------------------------------------------------------------------- */
-    lqc_create(resetCause, appNotifCB, networkStart, networkStop, NULL, getBatteryStatus, getFreeMemory);
+    lqc_create(ORGANIZATION_KEY, appNotifCB, networkStart, networkStop, NULL, getBatteryStatus, getFreeMemory);
     /* Callbacks
      * - cloudNotificationsHandler: cloud informs app of events
      * - networkStart:
@@ -140,10 +205,13 @@ void setup() {
      * - getFreeMemory: how much memory between stack and heap. Even without malloc, does the stack have room
     */
 
-    //lqc_start(LQCLOUD_URL, DEVICEID, LQCLOUD_SASTOKEN, "");
-    lqc_start(LQCLOUD_URL, mdminfo_ltem().imei, LQCLOUD_SASTOKEN, "");
+    char sasToken[200];
+    lqc_composeSasToken(sasToken, lqcDeviceConfig.url, lqcDeviceConfig.dvcId, lqcDeviceConfig.sasSig);
 
+    lqc_start(lqcDeviceConfig.url, mdminfo_ltem().imei, sasToken);      // using modem's IMEI as the device ID
     PRINTF(DBGCOLOR_info, "Connected to LQ Cloud, Device started.\r");
+
+    lqDiag_report(lqc_getDeviceLabel(), lqc_sendDiagAlert);             // invoke diagnostics reporter to analyze device start conditions and optionally send diagnostics to cloud/host
 
     sendTelemetry_intvl = wrkTime_create(PERIOD_FROM_SECONDS(30));      // this application sends telemetry continuously every 30 secs
     alert_intvl = wrkTime_create(PERIOD_FROM_MINUTES(60));              // and a periodic alert every 60 min
@@ -152,8 +220,8 @@ void setup() {
     /* now enable watchdog as app transitions to loop()
      * setup has already registered yield callback with LTEm1c to handle longer running network actions
      */
-    uint16_t wdtDuration = Watchdog.enable();                           // default = 16 seconds
-    PRINTF(DBGCOLOR_warn, "WDT Duration=%d\r\r", wdtDuration);
+    uint16_t wdtDuration = lqSAMD_wdEnable(0);                          // default = 16 seconds
+    PRINTF(DBGCOLOR_blue, "WDT Duration=%d\r\r", wdtDuration);
 
     // status: init completed.
     #ifdef ENABLE_NEOPIXEL
@@ -164,7 +232,7 @@ void setup() {
 
 
 /* loop() ------------------------------------------------------------------------------------------------------------- */
-bool lastSend = true;
+bool lastSendSuccessful = true;
 
 void loop() 
 {
@@ -185,9 +253,9 @@ void loop()
         snprintf(body, BODY_SZ, "{\"loopCnt\": %d}" , loopCnt);
 
         bool thisSend = lqc_sendTelemetry("LQ CloudTest", summary, body);
-        if (!thisSend && !lastSend)
+        if (!thisSend && !lastSendSuccessful)
              appNotifCB(lqcNotifType_hardFault, "Successive send errors");
-        lastSend = thisSend;
+        lastSendSuccessful = thisSend;
 
         loopCnt++;
     }
@@ -203,6 +271,13 @@ void loop()
         }
     }
 
+    // Diagnostics Testing 
+    if (loopCnt > 4)
+    {
+        appNotifCB(lqcNotifType_hardFault, "Test DiagQueueing");
+        while (1) {}                                                 // test for watchdog detection
+    }
+
     // Do LQ Cloud and application background tasks
     lqc_doWork();
     //applWork_doFlashLed();
@@ -214,7 +289,7 @@ void loop()
     if (loopCnt < WD_FAULT_TEST)
         Watchdog.reset();
     #else
-    Watchdog.reset();
+    lqSAMD_wdReset();
     #endif
 }
 
@@ -222,14 +297,16 @@ void loop()
 
 /* LQCloud Network Action Callbacks
 ========================================================================================================================= 
-  Standard callbacks for LQCloud to start and stop network services. Here the LTEm1 (modem) is started and stopped 
-  (power on/off). If LQCloud repeated send retries it will utilize a stop/start sequence to reset the transport.
-  These functions should be constructed to block until their function is complete before returning to LQCloud.
+  Standard callbacks for LQCloud to start and stop network services. Here the LTEm1 (modem) is started and stopped. 
+  If LQCloud repeated send retries it will utilize a stop/start sequence to reset the transport. These functions should
+  be constructed to block until their function is complete before returning to LQCloud.
 
-  Note: networkStart() returns bool indicating if the network started. Function should return true "complete", when 
-  the network transport state is ready for communications. If returning false, LQC will retry as required.
+  Note: networkStart() returns bool indicating if the network started. Function should return true only if complete, i.e.
+  when the network transport state is ready for communications. If returning false, LQC will retry as required.
 ========================================================================================================================= */
 
+
+// Reference definition
 // lqcNtwkStart_func >> typedef bool (*lqcNtwkStart_func)()
 
 bool networkStart()
@@ -237,10 +314,7 @@ bool networkStart()
     if (ltem_getReadyState() != qbg_readyState_appReady)
         ltem_start(pdpProtocol_mqtt);                   // validates protocols, powers on modem (standard power profile) and starts processing
 
-    PRINTF(DBGCOLOR_none, "Waiting on network...\r");
-    networkOperator_t networkOp;
-
-    networkOp = ntwk_awaitOperator(30000);
+    networkOperator_t networkOp = ntwk_awaitOperator(30000);
 
     if (strlen(networkOp.operName) > 0)
     {
@@ -253,11 +327,8 @@ bool networkStart()
             */
             ntwk_activatePdpContext(VERIZON_DATA_CONTEXT);  // Verizon IP data on ContextId = 1
         }
-        pdpCntxt_t *pdpCntxt = ntwk_getPdpCntxt(1);
+        pdpCntxt_t *pdpCntxt = ntwk_getPdpCntxt(VERIZON_DATA_CONTEXT);
         PRINTF(DBGCOLOR_white, "PDP Context=1, IPaddr=%s\r", pdpCntxt->ipAddress);
-    }
-    if (strlen(networkOp.operName) > 0)
-    {
         PRINTF(DBGCOLOR_white, "Network type is %s on %s\r", networkOp.ntwkMode, networkOp.operName);
         return true;
     }
@@ -265,6 +336,7 @@ bool networkStart()
 }
 
 
+// Reference definition
 // lqcNtwkStop_func >> typedef void (*lqcNtwkStop_func)()
 
 void networkStop()
@@ -293,7 +365,7 @@ void appNotifCB(uint8_t notifType, const char *notifMsg)
             return;
 
         case lqcNotifType_disconnect:
-            PRINTF(DBGCOLOR_warn, "LQCloud Attempting Connect\r");
+            PRINTF(DBGCOLOR_warn, "LQCloud Disconnected\r");
             #ifdef ENABLE_NEOPIXEL
                 neo.setPixelColor(0, 255, 0, 255);       // magenta
                 neo.show();
@@ -310,17 +382,17 @@ void appNotifCB(uint8_t notifType, const char *notifMsg)
             neo.show();
         #endif
 
-        // LQ Diagnostics Structure
+        // Application Level - LQ Diagnostics Structure (fault stack will be left empty)
+        lqDiag_setNotification(notifType, notifMsg);
+        lqDiag_setPhysPState(mdminfo_rssi());
+        lqDiag_setNtwkPState((ntwk_getPdpCntxt(1) == NULL) ? 0 : 1);
+        lqDiag_setApplPState(lqc_getConnectState("", false));                   // get MQTT state 
 
-        lqDiagInfo.notifCd = notifType;
-        memcpy(lqDiagInfo.notifMsg, notifMsg, 20);
-        lqDiagInfo.applProtoState = lqc_getConnectState("", false);         // get MQTT state 
-        // now gather data requiring functioning LTEm1 driver
-        lqDiagInfo.ntwkProtoState = (ntwk_getPdpCntxt(1) == NULL) ? 0 : 1;
-        lqDiagInfo.applProtoState = lqc_getConnectState("", true);          // now force read MQTT state from transport
+        // now gather more invasive data, data requiring functioning LTEmC driver
+        //lqDiagInfo.applProtoState = lqc_getConnectState("", true);            // now force read MQTT state from transport
 
-        //NVIC_SystemReset();
-        while (true) {}                                                     // should never get here
+        NVIC_SystemReset();
+        while (true) {}                                                         // should never get here
     }
 }
 
@@ -330,7 +402,7 @@ void appNotifCB(uint8_t notifType, const char *notifMsg)
 #define VBAT_PIN 9          // aka A7, which is not necessarily defined in variant.h
 #define VBAT_DIVIDER 2
 #define AD_SCALE 1023
-#define AD_VREF 3.3
+#define AD_VREF 3300        // milliVolts
 
 /* Note: A7 (aka pin digital 9) can do double duty with compatible functions. In this example
  * the pin is also a digital input sensing a button press. The voltage divider sensing the 
@@ -339,24 +411,21 @@ void appNotifCB(uint8_t notifType, const char *notifMsg)
 
 /**
  *	\brief Get feather battery status 
+ *  \return Current battery voltage in millivolts 
  */
-batteryWarning_t getBatteryStatus()
+uint16_t getBatteryStatus()
 {
-    double vbatAnalog = 0.0;
-    batteryWarning_t rslt = batteryStatus_good;
+    uint32_t vbatAnalog = 0;
 
     #ifdef VBAT_ENABLED
         vbatAnalog = analogRead(VBAT_PIN);
         // detach pin from analog mux, req'd for shared digital input use
-        pinMode(VBAT_PIN, INPUT);                       
-        vbatAnalog *= VBAT_DIVIDER * AD_VREF / AD_SCALE;
+        pinMode(VBAT_PIN, INPUT);
+        // vbatAnalog *= (VBAT_DIVIDER * AD_VREF / AD_SCALE);
+        vbatAnalog = vbatAnalog * VBAT_DIVIDER * AD_VREF / AD_SCALE;
 
-        if (vbatAnalog < 3.8)
-            rslt = batteryStatus_yellow;
-        else if (vbatAnalog < 3.7)
-            rslt = batteryStatus_red;
     #endif
-    return rslt;
+    return vbatAnalog;
 }
 
 
@@ -370,7 +439,7 @@ extern "C"  char *sbrk(int incr);
 extern char *__brkval;
 #endif  // __arm__
 
-int getFreeMemory() 
+uint32_t getFreeMemory()
 {
     char top;
     #ifdef __arm__
@@ -411,7 +480,7 @@ static void setLedState(keyValueDict_t params)
     #define KVALUESZ 15
     char kValue[KVALUESZ] = {0};
 
-    lqc_getDictValue("ledState", params, kValue, KVALUESZ);
+    lq_getQryStrDictionaryValue("ledState", params, kValue, KVALUESZ);
     PRINTF(DBGCOLOR_cyan, "setledState: %s\r", kValue);
 
     if (kValue[0] == '1')
@@ -448,13 +517,13 @@ static void doFlashLed(keyValueDict_t params)
     #define DICTIONARY_VALUE_CSTRING_SZ 12
     char kvalue[DICTIONARY_VALUE_CSTRING_SZ];
 
-    lqc_getDictValue("flashCount", params, kvalue, DICTIONARY_VALUE_CSTRING_SZ);
+    lq_getQryStrDictionaryValue("flashCount", params, kvalue, DICTIONARY_VALUE_CSTRING_SZ);
     flashes = atoi(kvalue);
 
     if (flashes = 0 || flashes > 10)
         lqc_sendActionResponse(RESULT_CODE_BADREQUEST, "Requested flash count must be between 1 and 10.");
 
-    lqc_getDictValue("cycleMillis", params, kvalue, DICTIONARY_VALUE_CSTRING_SZ);
+    lq_getQryStrDictionaryValue("cycleMillis", params, kvalue, DICTIONARY_VALUE_CSTRING_SZ);
     cycleMillis = atoi(kvalue);
 
     /* If cycleMillis * flashes is too long LQ Cloud will timeout action request, to prevent that we limit total time
@@ -524,4 +593,19 @@ void registerAppLqcActions()
     // REGISTER_ACTION("set-ase", setAseState, setAseState_params);
 }
 
+
+void lqcConfigParser(const char *buf, void *lqcDeviceConfig)
+{
+
+    lqJsonPropValue_t jProp;
+    lqcDeviceConfig_t *cnfg = (lqcDeviceConfig_t *)lqcDeviceConfig;
+
+    jProp = lq_getJsonPropValue(buf, "dvcTest");
+    if (jProp.type)
+        strncpy(cnfg->dvcLabel, jProp.value, jProp.len);
+
+    jProp = lq_getJsonPropValue(buf, "sasSig");
+    if (jProp.type)
+        strncpy(cnfg->sasSig, jProp.value, jProp.len);
+}
 

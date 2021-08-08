@@ -1,0 +1,14 @@
+{
+    "files.associations": {
+        "cstdint": "cpp",
+        "core_cm0plus.h": "c",
+        "lqc-internal.h": "c",
+        "sam.h": "c",
+        "lqsamd.h": "c",
+        "lq-types.h": "c",
+        "lqc-azure.h": "c",
+        "aes.h": "c",
+        "ltemc-tls.h": "c",
+        "ltemc-mqtt.h": "c"
+    }
+}

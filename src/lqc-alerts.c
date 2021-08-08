@@ -25,24 +25,22 @@
  * LooUQ LQCloud Client Alert Services
  *****************************************************************************/
 
-#include <jlinkRtt.h>                   // if you have issues with Intellisense on PRINTF() or DBGCOLOR_ try temporarily placing jlinkRtt.h outside conditional
-                                        // or add "_DEBUG = 2" to c_cpp_properties.json "defines" section list
-
 #define _DEBUG 2                        // set to non-zero value for PRINTF debugging output, 
 // debugging output options             // LTEm1c will satisfy PRINTF references with empty definition if not already resolved
-#if defined(_DEBUG) && _DEBUG > 0
+#if defined(_DEBUG)
     asm(".global _printf_float");       // forces build to link in float support for printf
-    #if _DEBUG == 1
-    #define SERIAL_DBG 1                // enable serial port output using devl host platform serial, 1=wait for port
-    #elif _DEBUG == 2
+    #if _DEBUG == 2
     #include <jlinkRtt.h>               // output debug PRINTF macros to J-Link RTT channel
+    #define PRINTF(c_,f_,__VA_ARGS__...) do { rtt_printf(c_, (f_), ## __VA_ARGS__); } while(0)
+    #else
+    #define SERIAL_DBG _DEBUG           // enable serial port output using devl host platform serial, _DEBUG 0=start immediately, 1=wait for port
     #endif
 #else
 #define PRINTF(c_, f_, ...) ;
 #endif
 
-#include <lqcloud.h>
 #include "lqc-internal.h"
+#include "lqc-azure.h"
 
 extern lqCloudDevice_t g_lqCloud;
 
@@ -94,30 +92,18 @@ static bool sendAlert(lqcEventClass_t evntClass, const char *evntName, const cha
  */
 bool lqc_sendAlert(const char *alrtName, const char *alrtSummary, const char *bodyJson)
 {
-    return sendAlert(lqcEventClass_application, alrtName, alrtSummary, bodyJson);
+    return LQC_sendAlert(lqcEventClass_application, alrtName, alrtSummary, bodyJson);
 }
 
+
+void lqc_sendDiagAlert(const char *deviceName, const char *diagBody)
+{
+    lqc_sendAlert("lqDiagnostics", deviceName, diagBody);
+}
 
 
 /* LooUQ Cloud Internal Alert Functions: not targetted for end-user application use.
 ================================================================================================ */
-
-void sendLqDiagnostics(const char *deviceName, lqDiagInfo_t *diagInfo)
-{
-    #define BUFSZ 120
-    char buf[BUFSZ] = {0};
-
-    snprintf(buf, BUFSZ, "{\"rcause\":%d,\"diagCd\":%d,\"diagMsg\":\"%s\", \"physPState\":%d, \"ntwkPState\":%d,\"applPState\":%d}\r", 
-                          diagInfo->resetCause,
-                          diagInfo->notifCd,
-                          diagInfo->notifMsg,
-                          diagInfo->physProtoState,
-                          diagInfo->ntwkProtoState,
-                          diagInfo->applProtoState);
-
-    lqc_sendAlert("lqDiagnostics", deviceName, buf);
-}
-
 
 #pragma region LQCloud Internal
 
@@ -126,42 +112,46 @@ void sendLqDiagnostics(const char *deviceName, lqDiagInfo_t *diagInfo)
  * 
  *  \param [in] startType - Enum describing the device start conditions.
  */
-void LQC_sendDeviceStarted(uint8_t rCause)
+void LQC_sendDeviceStarted(uint8_t rcause)
 {
-    char summary[LQC_EVENT_SUMMARY_SZ] = {0};
-    char body[LQC_EVENT_BODY_SZ] = {0};
+    char summary[lqc__event_summarySz] = {0};
+    char body[lqc__event_bodySz] = {0};
     char restartDescr[18] = {0};
 
     // summary is a simple C-string, body is a string formatted as a JSON object
-    snprintf(summary, LQC_EVENT_SUMMARY_SZ, "DeviceStart:%s (%d)",
-        g_lqCloud.deviceId, rCause);
-    snprintf(body, LQC_EVENT_BODY_SZ, "{\"dvcInfo\":{\"dId\":\"%s\",\"rCause\":%d,\"codeVer\":\"LooUQ-CloudMQTTv1.1\",\"msgVer\":\"1.0\"},\"ntwkInfo\":{\"ntwkType\":\"%s\",\"ntwkDetail\":\"%s\"}}", \
-        g_lqCloud.deviceId, g_lqCloud.diagnostics.resetCause, g_lqCloud.networkType, g_lqCloud.networkName);
+    snprintf(summary, sizeof(summary), "DeviceStart:%s (%d)",g_lqCloud.deviceId, rcause);
+    snprintf(body, 
+             sizeof(body), 
+             "{\"dvcInfo\":{\"dId\":\"%s\",\"rCause\":%d,\"codeVer\":\"LooUQ-CloudMQTTv1.1\",\"msgVer\":\"1.0\"},\"ntwkInfo\":{\"ntwkType\":\"%s\",\"ntwkDetail\":\"%s\"}}",
+             g_lqCloud.deviceId, 
+             rcause, 
+             g_lqCloud.networkType, 
+             g_lqCloud.networkName);
 
-    sendAlert(lqcEventClass_lqcloud, "dStart", summary, body);
+    LQC_sendAlert(lqcEventClass_lqcloud, "dStart", summary, body);
 }
 
 
-static bool sendAlert(lqcEventClass_t alrtClass, const char *alrtName, const char *alrtSummary, const char *bodyJson)
+bool LQC_sendAlert(lqcEventClass_t alrtClass, const char *alrtName, const char *alrtSummary, const char *bodyJson)
 {
-    char msgEvntName[LQC_EVENT_NAME_SZ] = {0};
-    char msgEvntSummary[LQC_EVENT_SUMMARY_SZ] = {0};
+    char msgEvntName[lqc__event_nameSz] = {0};
+    char msgEvntSummary[lqc__event_summarySz] = {0};
     char msgTopic[LQMQ_TOPIC_PUB_MAXSZ];
     char msgBody[LQMQ_MSG_MAXSZ]; 
     char eventClass[5];
 
     strncpy(eventClass, (alrtClass == lqcEventClass_application) ? "appl":"lqc", 5);
     
-    if (alrtName[0] == ASCII_cNULL)
+    if (alrtName[0] == '\0')
         strncpy(msgEvntName, "alert", 9);
     else
-        strncpy(msgEvntName, alrtName, MIN(strlen(alrtName), LQC_EVENT_NAME_SZ-1));
+        strncpy(msgEvntName, alrtName, MIN(strlen(alrtName), sizeof(msgEvntName)-1));
 
-    if (alrtSummary[0] != ASCII_cNULL)
-        snprintf(msgEvntSummary, LQC_EVENT_SUMMARY_SZ, "\"descr\": \"%s\",", alrtSummary);
+    if (alrtSummary[0] != '\0')
+        snprintf(msgEvntSummary, sizeof(msgEvntSummary), "\"descr\": \"%s\",", alrtSummary);
 
     // "devices/%s/messages/events/mId=~%d&mV=1.0&evT=alrt&evC=%s&evN=%s"
-    snprintf(msgTopic, LQMQ_TOPIC_PUB_MAXSZ, LQMQ_MSG_D2CTOPIC_ALERT_TMPLT, g_lqCloud.deviceId, g_lqCloud.msgNm++, eventClass, msgEvntName);
+    snprintf(msgTopic, LQMQ_TOPIC_PUB_MAXSZ, IotHubTemplate_D2C_topicAlert, g_lqCloud.deviceId, g_lqCloud.msgNm++, eventClass, msgEvntName);
     snprintf(msgBody, LQMQ_MSG_MAXSZ, "{%s\"alert\": %s}", msgEvntSummary, bodyJson);
     return LQC_mqttTrySend(msgTopic, msgBody, false);
 }

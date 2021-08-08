@@ -25,32 +25,32 @@
  * LooUQ LQCloud Client Device Actions (command) Services
  *****************************************************************************/
 
-#include <jlinkRtt.h>                   // if you have issues with Intellisense on PRINTF() or DBGCOLOR_ try temporarily placing jlinkRtt.h outside conditional
-                                        // or add "_DEBUG = 2" to c_cpp_properties.json "defines" section list
-
 #define _DEBUG 2                        // set to non-zero value for PRINTF debugging output, 
 // debugging output options             // LTEm1c will satisfy PRINTF references with empty definition if not already resolved
-#if defined(_DEBUG) && _DEBUG > 0
+#if defined(_DEBUG)
     asm(".global _printf_float");       // forces build to link in float support for printf
-    #if _DEBUG == 1
-    #define SERIAL_DBG 1                // enable serial port output using devl host platform serial, 1=wait for port
-    #elif _DEBUG == 2
+    #if _DEBUG == 2
     #include <jlinkRtt.h>               // output debug PRINTF macros to J-Link RTT channel
+    #define PRINTF(c_,f_,__VA_ARGS__...) do { rtt_printf(c_, (f_), ## __VA_ARGS__); } while(0)
+    #else
+    #define SERIAL_DBG _DEBUG           // enable serial port output using devl host platform serial, _DEBUG 0=start immediately, 1=wait for port
     #endif
 #else
 #define PRINTF(c_, f_, ...) ;
 #endif
 
 
-#include <lqcloud.h>
 #include "lqc-internal.h"
+#include "lqc-azure.h"
 
 extern lqCloudDevice_t g_lqCloud;
 
 
 #pragma region Static Local Declarations
-static void tryAsApplAction(const char *actnName, const char *actnKey, const char *actionMsgBody);
-static void actionResponse(lqcEventClass_t evntClass, const char *evntName, uint16_t resultCode, const char *responseBody);
+static void S_tryAsApplAction(const char *actnName, const char *actnKey, const char *actionMsgBody);
+static void S_actionResponse(lqcEventClass_t evntClass, const char *evntName, uint16_t resultCode, const char *responseBody);
+static void S_metricsInfoResponse(keyValueDict_t params);
+
 
 // built in cloud actions
 static void actionInfoResponse();
@@ -82,10 +82,10 @@ static void setDeviceNameResponse(keyValueDict_t params);
  */
 bool lqc_regApplAction(const char *actnName, lqc_ActnFunc_t actnFunc, const char *paramList)
 {
-    ASSERT(strlen(actnName) < LQCACTN_NAME_SZ, "ASSERT:lqc_regApplAction():actnName too long");
-    ASSERT(strlen(paramList) < LQCACTN_PARAMLIST_SZ, "ASSERT:lqc_regApplAction(): paramlist too long");
+    ASSERT(strlen(actnName) < LQC__action_nameSz, srcfile_actions_c);
+    ASSERT(strlen(paramList) < LQC__action_paramsListSz, srcfile_actions_c);
 
-    for (size_t i = 0; i < LQCACTN_CNT; i++)
+    for (size_t i = 0; i < LQC__actionCnt; i++)
     {
         if (g_lqCloud.applActions[i].name[0] == '\0')
         {
@@ -110,9 +110,9 @@ void lqc_sendActionResponse(uint16_t resultCd, const char *bodyJson)
     uint16_t bodySz = strlen(bodyJson);
 
     if (bodySz == 0)                                                                        // empty, send empty JSON object
-        actionResponse(lqcEventClass_application, g_lqCloud.actnName, resultCd, "{}");
+        S_actionResponse(lqcEventClass_application, g_lqCloud.actnName, resultCd, "{}");
     else
-        actionResponse(lqcEventClass_application, g_lqCloud.actnName, resultCd, bodyJson);
+        S_actionResponse(lqcEventClass_application, g_lqCloud.actnName, resultCd, bodyJson);
 }
 
 #pragma endregion
@@ -131,18 +131,18 @@ void lqc_sendActionResponse(uint16_t resultCd, const char *bodyJson)
  */
 void LQC_processActionRequest(const char *actnName, keyValueDict_t mqttProps, const char *msgBody)
 {
-    char appKey[LQC_APPKEY_SZ] = {0};
+    char appKey[lqc__identity_organizationKeySz] = {0};
     char eventClass[8] = {0};
 
-    lqc_getDictValue("appk", mqttProps, appKey, LQC_APPKEY_SZ);
+    lq_getQryStrDictionaryValue("appk", mqttProps, appKey, sizeof(appKey));
 
-    if (strlen(g_lqCloud.appKey) == 0 || strcmp(appKey, g_lqCloud.appKey) == 0)
+    if (strlen(g_lqCloud.orgKey) == 0 || strcmp(appKey, g_lqCloud.orgKey) == 0)
     {
-        lqc_getDictValue("evC", mqttProps, eventClass, 8);
+        lq_getQryStrDictionaryValue("evC", mqttProps, eventClass, 8);
 
         if (strcmp(eventClass, "app") == 0)
         {
-            tryAsApplAction(actnName, appKey, msgBody);
+            S_tryAsApplAction(actnName, appKey, msgBody);
         }
         else if (strcmp(eventClass, "lqc") == 0 && strcmp(actnName, "getactn") == 0)    // getactninfo: get action info
         {
@@ -158,21 +158,21 @@ void LQC_processActionRequest(const char *actnName, keyValueDict_t mqttProps, co
         }
         else if (strcmp(eventClass, "lqc") == 0 && strcmp(actnName, "setdname") == 0)    // setdname: set (or get) device name
         {
-            lqcJsonPropValue_t paramsProp = lqc_getJsonPropValue(msgBody, "params");
-            keyValueDict_t actnParams = lqc_createDictFromQueryString(paramsProp.value, paramsProp.len);
+            lqJsonPropValue_t paramsProp = lq_getJsonPropValue(msgBody, "params");
+            keyValueDict_t actnParams = lq_createQryStrDictionary(paramsProp.value, paramsProp.len);
             setDeviceNameResponse(actnParams);
         }
         else if (strcmp(eventClass, "lqc") == 0 && strcmp(actnName, "getdiag") == 0)    // getdiaginfo: get cloud diagnostics info
         {
-            lqcJsonPropValue_t paramsProp = lqc_getJsonPropValue(msgBody, "params");
-            keyValueDict_t actnParams = lqc_createDictFromQueryString(paramsProp.value, paramsProp.len);
-            diagInfoResponse(actnParams);
+            lqJsonPropValue_t paramsProp = lq_getJsonPropValue(msgBody, "params");
+            keyValueDict_t actnParams = lq_createQryStrDictionary(paramsProp.value, paramsProp.len);
+            S_metricsInfoResponse(actnParams);
         }
         else
-            lqc_sendActionResponse(RESULT_CODE_NOTFOUND, "Unable to match action.");
+            lqc_sendActionResponse(resultCode__notFound, "Unable to match action.");
     }
     else
-        lqc_sendActionResponse(RESULT_CODE_FORBIDDEN, "Invalid action key.");
+        lqc_sendActionResponse(resultCode__forbidden, "Invalid action key.");
 }
 
 
@@ -187,47 +187,47 @@ void LQC_processActionRequest(const char *actnName, keyValueDict_t mqttProps, co
  *
  *	\param [in] actionMessage - Message received from the MQTT receiver process.
  */
-static void tryAsApplAction(const char *actnName, const char *actnKey, const char *actionMsgBody)
+static void S_tryAsApplAction(const char *actnName, const char *actnKey, const char *actionMsgBody)
 {
-    PRINTF(DBGCOLOR_dGreen, "ApplAction: %s\r", actnName);
-    lqcJsonPropValue_t paramsProp = lqc_getJsonPropValue(actionMsgBody, "params");
-    keyValueDict_t actnParams = lqc_createDictFromQueryString(paramsProp.value, paramsProp.len);
+    PRINTF(dbgColor__dGreen, "ApplAction: %s\r", actnName);
+    lqJsonPropValue_t paramsProp = lq_getJsonPropValue(actionMsgBody, "params");
+    keyValueDict_t actnParams = lq_createQryStrDictionary(paramsProp.value, paramsProp.len);
 
-    for (size_t i = 0; i < LQCACTN_CNT; i++)
+    for (size_t i = 0; i < LQC__actionCnt; i++)
     {
         if (strcmp(g_lqCloud.applActions[i].name, actnName) == 0)
         {
             g_lqCloud.applActions[i].func(actnParams);
             if (strlen(g_lqCloud.actnMsgId) > 0)                     // send error, if function failed to send response and clear request msgId
-                actionResponse(lqcEventClass_application, g_lqCloud.actnName, RESULT_CODE_ERROR, "Action failed. See eRslt (resultCode).");
+                S_actionResponse(lqcEventClass_application, g_lqCloud.actnName, resultCode__internalError, "Action failed. See eRslt (resultCode).");
             return;
         }
     }
 }
 
 
-static void getApplActions(char applActions[], uint16_t maxSz)
+static void S_getApplActions(char applActions[], uint16_t maxSz)
 {
     uint16_t actnOffset = 0;
 
-    for (size_t i = 0; i < LQCACTN_CNT; i++)
+    for (size_t i = 0; i < LQC__actionCnt; i++)
     {
-        char actnBuf[LQCACTN_BUF_SZ] = {0};
+        char actnBuf[80] = {0};
         //char paramBuf[60] = {0};
 
         if (strlen(g_lqCloud.applActions[i].name) > 0)
         {
-            snprintf(actnBuf, LQCACTN_BUF_SZ, "{\"n\":\"%s\",\"p\":\"%s\"},", g_lqCloud.applActions[i].name, g_lqCloud.applActions[i].paramList);
+            snprintf(actnBuf, sizeof(actnBuf), "{\"n\":\"%s\",\"p\":\"%s\"},", g_lqCloud.applActions[i].name, g_lqCloud.applActions[i].paramList);
 
             strncpy(applActions + actnOffset, actnBuf, maxSz - actnOffset);
             actnOffset += strlen(actnBuf);
         }
     }
-    applActions[strlen(applActions) - 1] = ASCII_cNULL;         // drop trailing '&'
+    applActions[strlen(applActions) - 1] = '\0';         // drop trailing '&'
 }
 
 
-static void actionResponse(lqcEventClass_t eventClass, const char *eventName, uint16_t resultCode, const char *responseBody)
+static void S_actionResponse(lqcEventClass_t eventClass, const char *eventName, uint16_t resultCode, const char *responseBody)
 {
     char mqttTopic[LQMQ_TOPIC_PUB_MAXSZ];
     char actnClass[LQC_EVNTCLASS_SZ];
@@ -237,10 +237,10 @@ static void actionResponse(lqcEventClass_t eventClass, const char *eventName, ui
     strncpy(actnClass, (eventClass == lqcEventClass_application) ? "appl":"lqc", 5);
     g_lqCloud.msgNm++;
     // "devices/%s/messages/events/mId=~%d&mV=1.0&evT=aRsp&aCId=%s&evC=%s&evN=%s&aRslt=%d"
-    snprintf(mqttTopic, LQMQ_TOPIC_PUB_MAXSZ, LQMQ_MSG_D2CTOPIC_ACTIONRESP_TMPLT, g_lqCloud.deviceId, g_lqCloud.msgNm++, g_lqCloud.actnMsgId, actnClass, eventName, resultCode);
+    snprintf(mqttTopic, LQMQ_TOPIC_PUB_MAXSZ, IotHubTemplate_D2C_topicActionResponse, g_lqCloud.deviceId, g_lqCloud.msgNm++, g_lqCloud.actnMsgId, actnClass, eventName, resultCode);
     LQC_mqttTrySend(mqttTopic, responseBody, false);
 
-    g_lqCloud.actnMsgId[0] = ASCII_cNULL;
+    g_lqCloud.actnMsgId[0] = '\0';
     g_lqCloud.actnResult = resultCode;
 }
 
@@ -254,12 +254,12 @@ static void actionResponse(lqcEventClass_t eventClass, const char *eventName, ui
  */
 static void actionInfoResponse()
 {
-    char appActns[LQCACTN_CNT * LQCACTN_BUF_SZ] = {0};
+    char appActns[LQC__actionCnt * LQCACTN_BUF_SZ] = {0};
     //char mqttBody[(LQCACTN_CNT * LQCACTN_BUF_SZ) + LQCACTN_CACTIONS_BODY_SZ] = {0};
     char mqttBody[LQMQ_MSG_MAXSZ] = {0};
 
-    getApplActions(appActns, LQCACTN_CNT * LQCACTN_BUF_SZ);
-    snprintf(mqttBody, (LQCACTN_CNT * LQCACTN_BUF_SZ) + LQCACTN_LQCACTIONS_BODY_SZ, "{\"getactn\":"
+    S_getApplActions(appActns, LQC__actionCnt * LQCACTN_BUF_SZ);
+    snprintf(mqttBody, (LQC__actionCnt * LQCACTN_BUF_SZ) + LQCACTN_LQCACTIONS_BODY_SZ, "{\"getactn\":"
                     "{\"lqc\":["
                     "{\"n\":\"getactn\",\"p\":\"\"},"
                     "{\"n\":\"getntwk\",\"p\":\"\"},"
@@ -269,7 +269,7 @@ static void actionInfoResponse()
                     "],"
                     "\"app\":[%s]}}", appActns);
                 
-    actionResponse(lqcEventClass_lqcloud, "getactn", ACTION_RESULT_SUCCESS, mqttBody);
+    S_actionResponse(lqcEventClass_lqcloud, "getactn", resultCode__success, mqttBody);
 }
 
 
@@ -281,8 +281,11 @@ static void deviceInfoResponse()
     char topic[LQMQ_TOPIC_PUB_MAXSZ] = {0};
     char body[LQMQ_MSG_MAXSZ] = {0};
 
-    snprintf(body, LQC_EVENT_BODY_SZ, "{\"getdvc\": {\"dId\": \"%s\",\"codeVer\": \"LooUQ-Cloud MQTT v1.1\",\"msgVer\": \"1.0\"}}", g_lqCloud.deviceId);
-    actionResponse(lqcEventClass_lqcloud, "getdvc", ACTION_RESULT_SUCCESS, body);
+    snprintf(body, 
+             sizeof(body), 
+             "{\"getdvc\": {\"dId\": \"%s\",\"codeVer\": \"LooUQ-Cloud MQTT v1.1\",\"msgVer\": \"1.0\"}}", 
+             g_lqCloud.deviceId);
+    S_actionResponse(lqcEventClass_lqcloud, "getdvc", resultCode__success, body);
 }
 
 
@@ -298,15 +301,20 @@ static void networkInfoResponse()
     if (g_lqCloud.ntwkSignalCB)
         rssi = g_lqCloud.ntwkSignalCB();
     
-    snprintf(body, LQC_EVENT_BODY_SZ, "{\"getntwk\": {\"ntwkType\": \"%s\",\"ntwkName\": \"%s\", \"rssi\":%d}}", g_lqCloud.networkType, g_lqCloud.networkName, rssi);
-    actionResponse(lqcEventClass_lqcloud, "getntwk", ACTION_RESULT_SUCCESS, body);
+    snprintf(body,
+             sizeof(body),
+             "{\"getntwk\": {\"ntwkType\": \"%s\",\"ntwkName\": \"%s\", \"rssi\":%d}}", 
+             g_lqCloud.networkType, 
+             g_lqCloud.networkName, 
+             rssi);
+    S_actionResponse(lqcEventClass_lqcloud, "getntwk", resultCode__success, body);
 }
 
 
 /**
  *	\brief Gather LQCloud diagnostic struct members and notify user 
  */
-static void diagInfoResponse(keyValueDict_t params)
+static void S_metricsInfoResponse(keyValueDict_t params)
 {
     #define KVALUESZ 8
     char kValue[KVALUESZ] = {0};
@@ -314,28 +322,17 @@ static void diagInfoResponse(keyValueDict_t params)
     char body[LQMQ_MSG_MAXSZ] = {0};
 
     bool resetDiags = false;
-    lqc_getDictValue("reset", params, kValue, KVALUESZ);
-    PRINTF(DBGCOLOR_cyan, "resetDiags: %s\r", kValue);
+    lq_getQryStrDictionaryValue("reset", params, kValue, KVALUESZ);
+    PRINTF(dbgColor__cyan, "resetDiags: %s\r", kValue);
     resetDiags = atoi(kValue);
 
-    snprintf(body, LQC_EVENT_BODY_SZ, "{\"getdiag\":{\"rCause\":\"%d\",\"pubLstAt\":\"%d\",\"pubLstFlt\":%d,\"pubDurLst\":%d,\"pubDurMax\":%d,\"retryMax\":%d,\"connResets\":%d}}",
-                                        g_lqCloud.diagnostics.resetCause, 
-                                        g_lqCloud.diagnostics.publishLastAt, 
-                                        g_lqCloud.diagnostics.publishLastFaultType, 
-                                        g_lqCloud.diagnostics.publishDurLast, 
-                                        g_lqCloud.diagnostics.publishDurMax, 
-                                        g_lqCloud.diagnostics.publishRetryMax, 
-                                        g_lqCloud.diagnostics.connectResets);
-    actionResponse(lqcEventClass_lqcloud, "getdiag", ACTION_RESULT_SUCCESS, body);
+    LQC_composeMetricsReport(body, sizeof(body));
+    S_actionResponse(lqcEventClass_lqcloud, "getdiag", resultCode__success, body);
 
     if (resetDiags)
     {
-        g_lqCloud.diagnostics.publishLastAt = 0;
-        g_lqCloud.diagnostics.publishLastFaultType = 0;
-        g_lqCloud.diagnostics.publishDurLast = 0;
-        g_lqCloud.diagnostics.publishDurMax = 0;
-        g_lqCloud.diagnostics.publishRetryMax = 0;
-        g_lqCloud.diagnostics.connectResets = 0;
+        LQC_clearMetrics(lqcMetricsType_metrics);
+        LQC_clearMetrics(lqcMetricsType_diagnostics);
     }
 }
 
@@ -350,22 +347,22 @@ static void setDeviceNameResponse(keyValueDict_t params)
     char topic[LQMQ_TOPIC_PUB_MAXSZ] = {0};
     char body[LQMQ_MSG_MAXSZ] = {0};
 
-    lqc_getDictValue("name", params, kValue, KVALUESZ);
-    PRINTF(DBGCOLOR_cyan, "dvc name: %s\r", kValue);
+    lq_getQryStrDictionaryValue("name", params, kValue, KVALUESZ);
+    PRINTF(dbgColor__cyan, "dvc name: %s\r", kValue);
 
     uint8_t kValLen = strlen(kValue);
 
-    if (kValLen != 0 && (kValLen < 3 || kValLen >= LQC_DEVICENAME_SZ))
+    if (kValLen != 0 && (kValLen < 3 || kValLen >= lqc__identity_deviceLabelSz))
     {
-        actionResponse(lqcEventClass_lqcloud, "setdname", RESULT_CODE_BADREQUEST, "Invalid dname param, length must be 3 to 12 chars");
+        S_actionResponse(lqcEventClass_lqcloud, "setdname", resultCode__badRequest, "Invalid dname param, length must be 3 to 12 chars");
         return;
     }
 
     if (kValLen > 0)
-        strncpy(g_lqCloud.deviceName, kValue, LQC_DEVICENAME_SZ);
+        strncpy(g_lqCloud.deviceLabel, kValue, lqc__identity_deviceLabelSz);
 
-    actionResponse(lqcEventClass_lqcloud, "setdname", ACTION_RESULT_SUCCESS, g_lqCloud.deviceName);
-    PRINTF(DBGCOLOR_info, "Local name: %s\r", g_lqCloud.deviceName);
+    S_actionResponse(lqcEventClass_lqcloud, "setdname", resultCode__success, g_lqCloud.deviceLabel);
+    PRINTF(dbgColor__info, "Device Label: %s\r", g_lqCloud.deviceLabel);
 }
 
 #pragma endregion
