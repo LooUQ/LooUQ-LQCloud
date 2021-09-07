@@ -126,10 +126,10 @@ void lqc_create(const char *organizationKey,
  *
  *	\param shortName [in] The device shortname.
  */
-void lqc_setDeviceName(const char *shortName)
+void lqc_setDeviceLabel(const char *label)
 {
     memset(g_lqCloud.deviceLabel, 0, lqc__identity_deviceLabelSz);
-    strncpy(g_lqCloud.deviceLabel, shortName, lqc__identity_deviceLabelSz-1);
+    strncpy(g_lqCloud.deviceLabel, label, lqc__identity_deviceLabelSz-1);
 }
 
 
@@ -212,7 +212,7 @@ lqcConnectState_t lqc_getConnectState(const char *hostName)
     // NOTE: BGx MQTT has no check for an existing subscription (only change actions of subscribe\unsubscribe)
     // Here the subscribed test must resubscribe to Azure C2D topic and test for success. Azure and the BGx don't seem to mind resubscribing to a subscribed topic/qos
 
-    lqcConnectState_t mqttConnState = (lqcConnectState_t)mqtt_status(g_lqCloud.mqttCtrl, hostName);                 // get underlying MQTT connection status
+    lqcConnectState_t mqttConnState = (lqcConnectState_t)mqtt_getStatus(g_lqCloud.mqttCtrl, hostName);              // get underlying MQTT connection status
     g_lqCloud.connectState = (mqttConnState == mqttStatus_connected) ? g_lqCloud.connectState : mqttConnState;      // LQC status unchanged on mqtt connected unless...
 
     if (mqttConnState == lqcConnectState_connected && g_lqCloud.connectState == lqcConnectState_ready)              // subscription verification indicated

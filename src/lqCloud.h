@@ -233,7 +233,7 @@ void lqc_create(const char *organizationKey,
                 memStatus_func memoryStatCB);
 
 void lqc_configTelemetryCallbacks(pwrStatus_func pwrStatFunc, battStatus_func battStatFunc, memStatus_func memStatFunc);
-void lqc_setDeviceLabel(const char *shortName);
+void lqc_setDeviceLabel(const char *label);
 
 void lqc_start(mqttCtrl_t *mqttCtrl, const char *sasToken);
 void lqc_setConnectMode(lqcConnectMode_t connMode, wrkTime_t *schedObj);
