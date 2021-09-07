@@ -1,4 +1,5 @@
 # Ignores
+examples/*/.build
 tests/*/.build
 
 # Prerequisites
@@ -33,6 +34,3 @@ tests/*/.build
 *.exe
 *.out
 *.app
-tests/PlatformTest/dvcSettings.h
-tests/PlatformTest/dvcSettings.h
-tests/PlatformTest/dvcSettings.h

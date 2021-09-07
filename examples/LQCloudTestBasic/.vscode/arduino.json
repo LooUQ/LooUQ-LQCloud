@@ -1,0 +1,8 @@
+{
+    "sketch": "LQCloudTestBasic.ino",
+    "port": "COM19",
+    "board": "adafruit:samd:adafruit_feather_m0_express",
+    "configuration": "opt=none,usbstack=arduino,debug=on",
+    "debugger": "jlink",
+    "output": ".\\.build"
+}
