@@ -79,13 +79,10 @@
  * You will obtain a SAS Token like above from the LQCloud-Manage web application. Under devices, you can get a SAS token from the list or the device details page.
 */
 
-#define DEVtoken "SharedAccessSignature sr=iothub-dev-pelogical.azure-devices.net%2Fdevices%2F867198053158865&sig=UAIOJomLgbiUCiAxkqBIwMZ6kGiIakARRhem44qp%2FNk%3D&se=1786980153"
-#define PRDtoken "SharedAccessSignature sr=iothub-a-prod-loouq.azure-devices.net%2Fdevices%2F867198053226845&sig=nKHvgIOC%2FIQwxG0xoYLPt7ogZFnKe1dYMO7lktaiZzo%3D&se=1786980251"
-
 // put your LQCloud SASToken here (yep, this one is expired)
 #define LQCLOUD_TOKEN "SharedAccessSignature sr=iothub-dev-pelogical.azure-devices.net%2Fdevices%2F867198053224766&sig=zlkmqXDdb9ebeRBOMssHj0XHOSllIpXc5zKdBFgSTec%3D&se=1628439070"
 // organization key used to validate configuration and binary files and C2D (cloud-to-device) action commands
-const char *orgKey = "B89B35C768B4280E2CE49336F4DEC752DE43BE14E153A6523AD0D71AAC83B4DC";
+const char *orgKey = "B89B3C5768B4280E2CE49336FD4EC752DE43BE14E153A6523AD0D71AAC83B4DC";
 
 
 // test setup
@@ -196,9 +193,9 @@ void setup() {
     PRINTF(dbgColor__blue,"Flash chip JEDEC ID: %x\r", flash.getJEDECID());
 
     /* Do a round-trip through flashDictionary for testing purposes */
-    // flashDictionary.eraseAll();                                                                     // erase FLASH
-    // lqcDeviceConfigWr = lqc_decomposeTokenSas(DEVtoken);                                            // write config to FLASH
-    // fresult = flashDictionary.write(201, &lqcDeviceConfigWr, sizeof(lqcDeviceConfig_t), true);      // lqcDeviceConfigWr = lqc_decomposeTokenSas(LQCLOUD_TOKEN);
+    flashDictionary.eraseAll();                                                                     // erase FLASH
+    lqcDeviceConfigWr = lqc_decomposeTokenSas(LQCLOUD_TOKEN);                                       // write config to FLASH
+    fresult = flashDictionary.write(201, &lqcDeviceConfigWr, sizeof(lqcDeviceConfig_t), true);      // lqcDeviceConfigWr = lqc_decomposeTokenSas(LQCLOUD_TOKEN);
 
     fresult = flashDictionary.readByKey(201, &lqcDeviceConfigRd, sizeof(lqcDeviceConfig_t));        // read config from FLASH
     char lqcToken[160];
@@ -211,16 +208,6 @@ void setup() {
 
     ltem_create(ltem_pinConfig, appNotifCB);                // create modem\transport reference
     ltem_start();
-
-    // if (cnfgPkgSrvc.CheckFetch(LOOUQ_FLASHDICTKEY__LQCDEVICE, &lqcDeviceConfig, sizeof(lqcDeviceConfig), lqcConfigParser))
-    //      appNotifCB(lqNotifType_hardFault, "Config missing");
-    // if (flashDictionary.find(LOOUQ_FLASHDICTKEY__LQCDEVICE, &lqcDeviceConfig, sizeof(lqcDeviceConfig)) == FLASHDICT_KEYNOTFOUND)
-    //     appNotifCB(lqcNotifType_hardFault, "Config missing");
-
-
-
-    // networkStart();                                         // since the LQCloud deviceId is the LTEm1 modem's IMEI, the application needs to start the network.
-
 
     /* Add LQCloud to project and register local service callbacks.
      * ----------------------------------------------------------------------------------------- */
