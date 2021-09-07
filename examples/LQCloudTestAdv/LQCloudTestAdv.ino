@@ -82,7 +82,7 @@
 // put your LQCloud SASToken here (yep, this one is expired)
 #define LQCLOUD_TOKEN "SharedAccessSignature sr=iothub-dev-pelogical.azure-devices.net%2Fdevices%2F867198053224766&sig=zlkmqXDdb9ebeRBOMssHj0XHOSllIpXc5zKdBFgSTec%3D&se=1628439070"
 // organization key used to validate configuration and binary files and C2D (cloud-to-device) action commands
-const char *orgKey = "B89B35C768B4280E2CE49336F4DEC752DE43BE14E153A6523AD0D71AAC83B4DC";
+const char *orgKey = "B89B3C5768B4280E2CE49336FD4EC752DE43BE14E153A6523AD0D71AAC83B4DC";
 
 
 // test setup
