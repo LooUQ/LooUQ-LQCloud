@@ -27,6 +27,10 @@
 #ifndef __LQC_INTERNAL_H__
 #define __LQC_INTERNAL_H__
 
+#include <stdint.h>
+#include <stdlib.h>
+#include <stdbool.h>
+
 #include <lq-types.h>
 #include <lq-diagnostics.h>
 #include <lqcloud.h>
@@ -42,16 +46,14 @@ enum
     LQC__connectionRetryCnt = 3,
     LQC__messageIdSz = 36,
 
+    LQC__sendRetryDelayMS = 5000,
+    LQC__sendRetriesMax = 3,
+    LQC__connectionRetryWaitSec = 120,
 
     LQMQ_MSG_MAXSZ = 1548,                                  ///< largest MQTT send message for BGx
     LQMQ_TOPIC_PUB_MAXSZ = 437,                             ///< total buffer size to construct topic for pub\sub AT actions
     LQMQ_SEND_QUEUE_SZ = 2,
-    LQMQ_SEND_RETRY_DELAY = 5000,
-    LQMQ_SEND_RETRY_CONNECTIONRESETRETRIES = 3,
-    LQC_RECOVERY_WAIT_SECONDS = 120,
-
     LOOUQ_FLASHDICTKEY__LQCDEVICECONFIG = 201,
-
     DVCSTATUS_SZ = 61,
     LQC_EVNTCLASS_SZ = 5,
     LQCACTN_BUF_SZ = 80,                                    ///< good averaged for up to a couple params
@@ -161,11 +163,10 @@ typedef struct lqCloudDevice_tag
     char networkName[lqc__network_nameSz +1];               ///<
     char hostUri[lqc__identity_hostUriSz +1 ];              ///< URL of the configured LooUQ Cloud ingress point (Az IoTHub)
     char tokenSigExpiry[lqc__identity_tokenSigExpirySz +1]; ///< Signature and expiry for access token
-    char orgKey[lqc__identity_organizationKeySz];           ///< key to validate action (cmd) orinator and validate resources (configuration/binaries) Reqd for OTA updates. 
+    char *orgKey;                                           ///< Pointer to optional customer specific 64-hex digit validation key. Used by device actions and OTA package validation.
     lqcConnectMode_t connectMode;                           ///< Device to Cloud connection mode: OnDemand, Continuous, Required.
     wrkTime_t *connectSched;                                ///< If connection mode OnDemand: period timer for when to connect
     lqcConnectState_t connectState;                         ///< Device to Cloud connection state: Closed, Open, Connected, Subscribed
-    uint16_t msgNm;                                         ///< LQ Cloud client message number, incr each send. Note: independent from MQTT message ID and IOTHUB mId property.
     uint8_t onDemandTimeoutMinutes;                         ///< The time the communications channel stays open for onDemand mode.
     lqcMqttQueuedMsg_t mqttSendQueue[LQC__sendQueueSz];     ///< Outgoing messages, only queue if initial send fails
     uint8_t mqttQueuedHead;                                 ///< array index of next message (from queued order)
@@ -190,6 +191,7 @@ typedef struct lqCloudDevice_tag
 * These are not defined static because they are used across compilation units.
 ------------------------------------------------------------------------------------------------ */
 
+uint16_t LQC_getMsgId();
 bool LQC_mqttTrySend(const char *topic, const char *body, bool fromQueue);
 void LQC_faultHandler(const char *faultMsg);
 void LQC_notifyApp(uint8_t notifType, const char *notifMsg);
@@ -197,14 +199,16 @@ void LQC_notifyApp(uint8_t notifType, const char *notifMsg);
 // alerts
 void LQC_sendDeviceStarted(uint8_t startType);
 bool LQC_sendAlert(lqcEventClass_t alrtClass, const char *alrtName, const char *alrtSummary, const char *bodyJson);
+bool LQC_sendDiagAlert(diagnosticInfo_t * diagInfo);
 
 // actions
 void LQC_processActionRequest(const char *actnName, keyValueDict_t actnParams, const char *msgBody);
 
+
 // metrics
 void LQC_clearMetrics(lqcMetricsType_t metricType);
 void LQC_composeMetricsReport(char *alrtBody, uint8_t bufferSz);
-void LQC_composeDiagnosticsReport(char *alrtBody, uint8_t bufferSz);
-void LQC_composeFaultReport(char *alrtBody, uint8_t bufferSz);
+// void LQC_composeDiagnosticsReport(char *alrtBody, uint8_t bufferSz);
+// void LQC_composeFaultReport(char *alrtBody, uint8_t bufferSz);
 
 #endif  /* !__LQC_INTERNAL_H__ */

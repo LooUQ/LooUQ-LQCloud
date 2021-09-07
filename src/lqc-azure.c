@@ -1,12 +1,12 @@
 
 #include "lqc-internal.h"
-#include <lqc-azure.h>
+#include "lqc-azure.h"
 
 
 void lqc_composeTokenSas(char *tokenSAS, uint8_t sasSz, const char* hostUri, const char *deviceId, const char* sigExpiry)
 {
-    ASSERT(sasSz >= lqc__identity_tokenSasSz, srcfile_azure_c);
-
+    ASSERT(strlen(hostUri) + strlen(deviceId) + strlen(sigExpiry) + 40 < sasSz, srcfile_azure_c);
+        
     /* Azure SAS Token Template
     * %s = host URI
     * %s = device ID

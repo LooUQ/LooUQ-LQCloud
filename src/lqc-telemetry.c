@@ -101,8 +101,9 @@ bool lqc_sendTelemetry(const char *evntName, const char *evntSummary, const char
         snprintf(deviceStatus, DVCSTATUS_SZ, ",\"deviceStatus\":{%s}", dStatusBuild);
     }
 
+    
     // "devices/%s/messages/events/mId=~%d&mV=1.0&evT=tdat&evC=%s&evN=%s"
-    snprintf(msgTopic, LQMQ_TOPIC_PUB_MAXSZ, IotHubTemplate_D2C_topicTelemetry, g_lqCloud.deviceId, g_lqCloud.msgNm++, "appl", msgEvntName);
+    snprintf(msgTopic, LQMQ_TOPIC_PUB_MAXSZ, IotHubTemplate_D2C_topicTelemetry, g_lqCloud.deviceId, LQC_getMsgId(), "appl", msgEvntName);
     snprintf(msgBody, LQMQ_MSG_MAXSZ, "{%s\"telemetry\": %s%s}", msgEvntSummary, bodyJson, deviceStatus);
     return LQC_mqttTrySend(msgTopic, msgBody, false);
 }

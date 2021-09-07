@@ -100,7 +100,7 @@ void lqc_reportFault()
 
 void LQC_composeMetricsReport(char *report, uint8_t bufferSz)
 {
-    snprintf(report, bufferSz, "{\"cResets\":%d,\"pubMaxRtry\":%d,\"pubMaxDur\":%d,\"pubLstDur\":%d,\"pubLstFRslt\":%d}\r", 
+    snprintf(report, bufferSz, "{\"cResets\":%d,\"pubMaxRtry\":%d,\"pubMaxDur\":%d,\"pubLstDur\":%d,\"pubLstFail\":%d}\r", 
              g_lqCloud.perfMetrics.connectResets,
              g_lqCloud.perfMetrics.publishMaxRetries,
              g_lqCloud.perfMetrics.publishMaxDuration,
@@ -109,25 +109,25 @@ void LQC_composeMetricsReport(char *report, uint8_t bufferSz)
 }
 
 
-void LQC_composeDiagnosticsReport(char *report, uint8_t bufferSz)
-{
-    snprintf(report, bufferSz, "{\"rcause\":%d,\"diagCd\":%d,\"diagMsg\":\"%s\", \"signalState\":%d, \"ntwkState\":%d,\"commState\":%d}\r", 
-             g_diagControl.diagnosticInfo.rcause,
-             g_diagControl.diagnosticInfo.notifType,
-             g_diagControl.diagnosticInfo.notifMsg,
-             g_diagControl.diagnosticInfo.signalState,
-             g_diagControl.diagnosticInfo.ntwkState,
-             g_diagControl.diagnosticInfo.commState);
+// void LQC_composeDiagnosticsReport(char *report, uint8_t bufferSz)
+// {
+//     snprintf(report, bufferSz, "{\"rcause\":%d,\"diagCd\":%d,\"diagMsg\":\"%s\", \"signalState\":%d, \"ntwkState\":%d,\"commState\":%d}\r", 
+//              g_diagControl.diagnosticInfo.rcause,
+//              g_diagControl.diagnosticInfo.notifType,
+//              g_diagControl.diagnosticInfo.notifMsg,
+//              g_diagControl.diagnosticInfo.signalState,
+//              g_diagControl.diagnosticInfo.ntwkState,
+//              g_diagControl.diagnosticInfo.commState);
 
-}
+// }
 
 
-void LQC_composeFaultReport(char *report, uint8_t bufferSz)
-{
-    snprintf(report, bufferSz, "{\"tbd\":%d,\"tbd\":%d}\r", 
-             g_diagControl.diagnosticInfo.rcause,
-             g_diagControl.diagnosticInfo.notifType);
-}
+// void LQC_composeFaultReport(char *report, uint8_t bufferSz)
+// {
+//     snprintf(report, bufferSz, "{\"tbd\":%d,\"tbd\":%d}\r", 
+//              g_diagControl.diagnosticInfo.rcause,
+//              g_diagControl.diagnosticInfo.notifType);
+// }
 
 
 void LQC_clearMetrics(lqcMetricsType_t metricType)

@@ -235,9 +235,9 @@ static void S_actionResponse(lqcEventClass_t eventClass, const char *eventName, 
     PRINTF(0, "ActnRespBodySz=%d\r", strlen(responseBody));
 
     strncpy(actnClass, (eventClass == lqcEventClass_application) ? "appl":"lqc", 5);
-    g_lqCloud.msgNm++;
+    uint16_t msgId = mqtt_getMsgId(g_lqCloud.mqttCtrl);
     // "devices/%s/messages/events/mId=~%d&mV=1.0&evT=aRsp&aCId=%s&evC=%s&evN=%s&aRslt=%d"
-    snprintf(mqttTopic, LQMQ_TOPIC_PUB_MAXSZ, IotHubTemplate_D2C_topicActionResponse, g_lqCloud.deviceId, g_lqCloud.msgNm++, g_lqCloud.actnMsgId, actnClass, eventName, resultCode);
+    snprintf(mqttTopic, LQMQ_TOPIC_PUB_MAXSZ, IotHubTemplate_D2C_topicActionResponse, g_lqCloud.deviceId, msgId, g_lqCloud.actnMsgId, actnClass, eventName, resultCode);
     LQC_mqttTrySend(mqttTopic, responseBody, false);
 
     g_lqCloud.actnMsgId[0] = '\0';
