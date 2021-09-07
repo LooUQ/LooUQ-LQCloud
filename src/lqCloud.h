@@ -27,13 +27,12 @@
 #ifndef __LQCLOUD_H__
 #define __LQCLOUD_H__
 
-#include <ltemc.h>              // *** TODO remove this dependency ***
-#include <ltemc-mqtt.h>
-
 #include <lq-types.h>           // LooUQ libraries LQCloud uses
 #include <lq-collections.h>
 #include <lq-wrkTime.h>
 
+#include <ltemc.h>              // *** TODO remove these dependencies ***
+#include <ltemc-mqtt.h>         // ***
 
 enum lqcloud_constants
 {
@@ -196,7 +195,9 @@ typedef enum lqcConnectState_tag
     lqcConnectState_closed = 0,
     lqcConnectState_opened = 1,
     lqcConnectState_connected = 2,
-    lqcConnectState_ready = 3               // aka subscribed
+    lqcConnectState_ready = 3,                                              ///< connected and subscribed
+    lqcConnectState_sendFault = 201,
+    lqcConnectState_connFault = 202
 } lqcConnectState_t;
 
 
@@ -206,8 +207,8 @@ typedef uint16_t (*battStatus_func)();                                      ///<
 typedef uint32_t (*memStatus_func)();                                       ///< (optional) callback into appl to determine memory available (between stack and heap)
 typedef int16_t (*ntwkSignal_func)();                                       ///< (optional) callback into appl to determine network signal strength
 
-typedef bool (*ntwkStart_func)();                                           ///< callback into appl to wake communications hardware, returns true if HW was made ready
-typedef void (*ntwkStop_func)();                                            ///< callback into appl to sleep communications hardware
+typedef bool (*ntwkStart_func)(bool resetNtwk);                             ///< callback into appl to wake communications hardware, returns true if HW was made ready
+typedef void (*ntwkStop_func)(bool disconnect);                             ///< callback into appl to sleep or fully discconnect communications hardware
 
 
 /** 
@@ -222,7 +223,8 @@ extern "C"
 #endif
 
 
-void lqc_create(const char * organizationKey,
+void lqc_create(const char *organizationKey,
+                const char *deviceLabel,
                 appNotify_func appNotifyCB, 
                 ntwkStart_func ntwkStartCB,
                 ntwkStop_func ntwkStopCB,
@@ -236,13 +238,13 @@ void lqc_setDeviceLabel(const char *shortName);
 void lqc_start(mqttCtrl_t *mqttCtrl, const char *sasToken);
 void lqc_setConnectMode(lqcConnectMode_t connMode, wrkTime_t *schedObj);
 lqcConnectMode_t lqc_getConnectMode();
-lqcConnectState_t lqc_getConnectState(const char *hostName, bool forceRead);
+lqcConnectState_t lqc_getConnectState(const char *hostName);
 
 void lqc_doWork();
 bool lqc_sendTelemetry(const char *evntName, const char *evntSummary, const char *bodyJson);
 bool lqc_sendAlert(const char *alrtName, const char *alrtSummary, const char *bodyJson);
-void lqc_sendDiagAlert(const char *deviceName, const char *diagBody);
 
+void lqc_diagnosticsCheck(diagnosticInfo_t *diagInfo);
 
 bool lqc_regApplAction(const char *actnName, lqc_ActnFunc_t applActn_func_t, const char *paramList);
 void lqc_sendActionResponse(uint16_t resultCode, const char *bodyJson);
@@ -257,12 +259,13 @@ bool wrkTime_isRunning(wrkTime_t *schedObj);
 bool wrkTime_doNow(wrkTime_t *schedObj);
 bool wrkTime_isElapsed(millisTime_t timerVal, millisDuration_t duration);
 
-void lqc_composeSasToken(char *sasToken, const char* hostUri, const char *deviceId, const char* sigExpiry);
-lqcDeviceConfig_t lqc_decomposeSasToken(const char* sasToken);
-const char *lqc_parseSasTokenForDeviceId(const char* sasToken);
-const char *lqc_parseSasTokenForUserId(const char* sasToken);
+void lqc_composeTokenSas(char *sasToken, uint8_t sasSz, const char* hostUri, const char *deviceId, const char* sigExpiry);
+lqcDeviceConfig_t lqc_decomposeTokenSas(const char* sasToken);
 
-const char *lqc_parseSasTokenForHostUri(const char* sasToken);
+
+// const char *lqc_parseSasTokenForDeviceId(const char* sasToken);
+// const char *lqc_parseSasTokenForUserId(const char* sasToken);
+// const char *lqc_parseSasTokenForHostUri(const char* sasToken);
 
 // // helpers
 //void sendLqDiagnostics(const char *deviceName, lqDiagInfo_t *diagInfo);

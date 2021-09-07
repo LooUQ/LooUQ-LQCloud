@@ -26,6 +26,14 @@
  * applications.
  *****************************************************************************/
 
+#include <lq-types.h>
+
+// #include "lqcloud.h"
+#include "lqc-internal.h"
+#include "lqc-azure.h"
+#include <lq-SAMDcore.h>
+
+
 #define _DEBUG 2                        // set to non-zero value for PRINTF debugging output, 
 // debugging output options             // LTEm1c will satisfy PRINTF references with empty definition if not already resolved
 #if defined(_DEBUG)
@@ -40,10 +48,6 @@
 #define PRINTF(c_, f_, ...) ;
 #endif
 
-#include "lqc-internal.h"
-#include "lqc-azure.h"
-#include <lq-SAMDcore.h>
-
 #define MIN(x, y) (((x)<(y)) ? (x):(y))
 #define MAX(x, y) (((x)>(y)) ? (x):(y))
 #define SEND_RETRIES 3
@@ -54,7 +58,7 @@ lqCloudDevice_t g_lqCloud;              /* GLOBAL LQCLOUD OBJECT */
 
 
 /* Local (static/non-public) functions */
-static bool S_connectToCloudMqttionManager(bool forceConnect, bool resetConnection);
+static bool S_ntwkConnectionManager(bool reqstConn);
 static lqcConnectState_t S_connectToCloudMqtt();
 static void S_cloudDisconnect();
 static void S_cloudReceiver(dataContext_t dataCntxt, uint16_t msgId, const char *topic, char *topicProps, char *message, uint16_t messageSz);
@@ -76,6 +80,7 @@ static void S_cloudSenderDoWork();
  */
 //void lqc_create(notificationType_func appNotificationCB, pwrStatus_func pwrStatCB, battStatus_func battStatCB, memStatus_func memStatCB)
 void lqc_create(const char *organizationKey,
+                const char *deviceLabel,
                 appNotify_func notificationCB, 
                 ntwkStart_func ntwkStartCB,
                 ntwkStop_func ntwkStopCB,
@@ -85,7 +90,7 @@ void lqc_create(const char *organizationKey,
 {
     g_lqCloud.connectMode = lqcConnectMode_continuous;
     strncpy(g_lqCloud.deviceLabel, "LQC-Device", lqc__identity_deviceLabelSz-1);
-    strncpy(g_lqCloud.orgKey, organizationKey, lqc__identity_organizationKeySz-1);
+    g_lqCloud.orgKey = organizationKey;
 
     g_lqCloud.notificationCB = notificationCB;
     g_lqCloud.networkStartCB = ntwkStartCB;
@@ -134,7 +139,7 @@ void lqc_setDeviceName(const char *shortName)
  *	\param ltem1_config [in] The LTE modem gpio pin configuration.
  *  \param funcLevel [in] Determines the LTEm1 functionality to create and start.
  */
-// void lqc_start(const char *hubAddr, const char *deviceId, const char *sasToken)
+// void lqc_start(const char *hubAddr, const char *deviceId, const char *tokenSas)
 void lqc_start(mqttCtrl_t *mqttCtrl, const char *tokenSas)
 {
     g_lqCloud.mqttCtrl = mqttCtrl;
@@ -148,21 +153,21 @@ void lqc_start(mqttCtrl_t *mqttCtrl, const char *tokenSas)
     uint16_t retries = 0;
     char connectionMsg[80] = {0};
 
-    while (!S_connectToCloudMqttionManager(true, false))
+    while (!S_ntwkConnectionManager(true))
     {
         PRINTF(dbgColor__white, ".");
         snprintf(connectionMsg, 80, "LQC Start Retry=%d", retries);
-        LQC_notifyApp(lqNotifType__lqcloud_connect, connectionMsg);
+        LQC_notifyApp(lqNotifType_lqcloud_connect, connectionMsg);
         pDelay(15000);
         retries++;
         if (retries > LQC__connectionRetryCnt)
         {
-            LQC_notifyApp(lqNotifType__lqcloud_disconnect, "");
+            LQC_notifyApp(lqNotifType_lqcloud_disconnect, "");
             retries = 0;
             pDelay(PERIOD_FROM_MINUTES(60));
         }
     }
-    LQC_notifyApp(lqNotifType__lqcloud_connect, "");
+    LQC_notifyApp(lqNotifType_lqcloud_connect, "");
     LQC_sendDeviceStarted(lqSAMD_getResetCause());
 }
 
@@ -199,7 +204,7 @@ lqcConnectMode_t lqc_getConnectMode()
  * 
  *  \return Enum representing device to cloud connection state
  */
-lqcConnectState_t lqc_getConnectState(const char *hostName, bool forceRead)
+lqcConnectState_t lqc_getConnectState(const char *hostName)
 {
     char subscribeTopic[mqtt__topic_nameSz] = {0};
     snprintf(subscribeTopic, sizeof(subscribeTopic), IoTHubTemplate_C2D_recvTopic, g_lqCloud.deviceId);
@@ -207,10 +212,10 @@ lqcConnectState_t lqc_getConnectState(const char *hostName, bool forceRead)
     // NOTE: BGx MQTT has no check for an existing subscription (only change actions of subscribe\unsubscribe)
     // Here the subscribed test must resubscribe to Azure C2D topic and test for success. Azure and the BGx don't seem to mind resubscribing to a subscribed topic/qos
 
-    lqcConnectState_t mqttConnState = (lqcConnectState_t)mqtt_status(g_lqCloud.mqttCtrl, hostName, forceRead);                          // get underlying MQTT connection status
+    lqcConnectState_t mqttConnState = (lqcConnectState_t)mqtt_status(g_lqCloud.mqttCtrl, hostName);                 // get underlying MQTT connection status
     g_lqCloud.connectState = (mqttConnState == mqttStatus_connected) ? g_lqCloud.connectState : mqttConnState;      // LQC status unchanged on mqtt connected unless...
 
-    if (mqttConnState == lqcConnectState_connected && g_lqCloud.connectState == lqcConnectState_ready && forceRead) // subscription verification indicated
+    if (mqttConnState == lqcConnectState_connected && g_lqCloud.connectState == lqcConnectState_ready)              // subscription verification indicated
     {
         if (mqtt_subscribe(g_lqCloud.mqttCtrl, subscribeTopic, mqttQos_1) == resultCode__success)
             g_lqCloud.connectState = lqcConnectState_ready;
@@ -233,13 +238,25 @@ char *lqc_getDeviceLabel()
 
 
 /**
+ *	\brief Evaluate diagnostics information block and optionally send cloud a diagnostics alert.
+ */
+void lqc_diagnosticsCheck(diagnosticInfo_t *diagInfo)
+{
+    if (diagInfo->diagMagic == assert__diagnosticsMagic)
+    {
+        // if (diagInfo->rcause == diagRcause_watchdog || diagInfo->rcause == diagRcause_system)
+        PRINTF(dbgColor__red, "Sending diagnostics, rcause=%d\r", diagInfo->rcause);
+        if (LQC_sendDiagAlert(diagInfo))
+            lqDiag_setResetCause(0);
+    }
+}
+
+
+/**
  *	\brief Perform background processing.
  */
 void lqc_doWork()
 {
-    // TODO: needs to be abstracted, currently LQCloud is tied to LTEm1\LTEmC
-    ltem_doWork();
-    
     S_cloudSenderDoWork();       // internally calls mqttConnectionManager() to set-up/tear-down LQC connection
 }
 
@@ -282,6 +299,16 @@ void LQC_notifyApp(uint8_t notifType, const char *notifMsg)
 //     while (waitForever) {}
 // }
 
+/**
+ *	\brief LQCloud Private: Get message ID.
+ * 
+ *  \return message ID number from underlying MQTT stack.
+ */
+uint16_t LQC_getMsgId()
+{
+    return mqtt_getMsgId(g_lqCloud.mqttCtrl);
+}
+
 
 /**
  *	\brief LQCloud Private: send device message via MQTT. Integrates with the mqttSenderDoWork() to manage FIFO queue.
@@ -300,6 +327,7 @@ bool LQC_mqttTrySend(const char *topic, const char *body, bool fromQueue)
     if (!deferredSend)
     {
         uint32_t pubTimerStart = millis();
+        uint16_t msgId = mqtt_getMsgId(g_lqCloud.mqttCtrl);
         pubResult = mqtt_publish(g_lqCloud.mqttCtrl, topic, mqttQos_1, body);                                   // send message
         if (pubResult != resultCode__success)
         {
@@ -307,7 +335,8 @@ bool LQC_mqttTrySend(const char *topic, const char *body, bool fromQueue)
         }
         g_lqCloud.perfMetrics.publishLastDuration = millis() - pubTimerStart;
         g_lqCloud.perfMetrics.publishMaxDuration = MAX(g_lqCloud.perfMetrics.publishMaxDuration, g_lqCloud.perfMetrics.publishLastDuration);
-        PRINTF(dbgColor__cyan, "MQTTtrySend:rc=%d,queued=%d,dur=%d,maxDur=%d\r", 
+        PRINTF(dbgColor__cyan, "MQTTtrySend:mId=%d,rc=%d,queued=%d,dur=%d,maxDur=%d\r", 
+                                msgId,
                                 pubResult, 
                                 fromQueue, 
                                 g_lqCloud.perfMetrics.publishLastDuration, 
@@ -320,8 +349,8 @@ bool LQC_mqttTrySend(const char *topic, const char *body, bool fromQueue)
         g_lqCloud.mqttQueuedTail = ++g_lqCloud.mqttQueuedTail % LQMQ_SEND_QUEUE_SZ;
     }
 
-    if (deferredSend ||                                                                     // in FIFO mode
-        (pubResult != resultCode__success && !fromQueue))                                   // -or- send failed and not already in queue
+    // -in FIFO mode -OR- send failed and not already in queue
+    if (deferredSend || (pubResult != resultCode__success && !fromQueue))                                   // 
     {
         if (g_lqCloud.mqttSendQueue[g_lqCloud.mqttQueuedHead].queuedAt != 0)                                    
         {
@@ -355,15 +384,14 @@ static void S_cloudSenderDoWork()
 {
     if (g_lqCloud.mqttSendQueue[g_lqCloud.mqttQueuedTail].queuedAt)                                                     // there is a message to retry
     {
-        if (wrkTime_isElapsed(g_lqCloud.mqttSendQueue[g_lqCloud.mqttQueuedTail].lastTryAt, LQMQ_SEND_RETRY_DELAY))      // we have waited sufficiently
+        if (wrkTime_isElapsed(g_lqCloud.mqttSendQueue[g_lqCloud.mqttQueuedTail].lastTryAt, LQC__sendRetryDelayMS))      // we have waited sufficiently
         {
             g_lqCloud.mqttSendQueue[g_lqCloud.mqttQueuedTail].retries++;
             g_lqCloud.mqttSendQueue[g_lqCloud.mqttQueuedTail].lastTryAt = pMillis();
 
-            bool excessRetriesResetConnection = !(g_lqCloud.mqttSendQueue[g_lqCloud.mqttQueuedTail].retries % LQMQ_SEND_RETRY_CONNECTIONRESETRETRIES);
-            bool readyToSend = S_connectToCloudMqttionManager(false, excessRetriesResetConnection);
+            // bool excessRetriesResetConnection = g_lqCloud.mqttSendQueue[g_lqCloud.mqttQueuedTail].retries > LQC__sendRetriesMax;
 
-            if (readyToSend)
+            if (S_ntwkConnectionManager(true))
             {
                 PRINTF(dbgColor__dCyan, "RecoverySend retries=%d--\r", g_lqCloud.mqttSendQueue[g_lqCloud.mqttQueuedTail].retries);
                 g_lqCloud.perfMetrics.publishMaxRetries = MAX(g_lqCloud.perfMetrics.publishMaxRetries, g_lqCloud.mqttSendQueue[g_lqCloud.mqttQueuedTail].retries);
@@ -415,78 +443,48 @@ static void S_cloudReceiver(dataContext_t dataCntxt, uint16_t msgId, const char 
 /**
  *	\brief  Manage MQTT connection to server. If continous mode disconnect: attempt reconnect, on-demand mode connect based on timers.
  *
- *  \param forceConnect [in] Connect without checking connection mode
+ *  \param reqstConn [in] Connect without checking connection mode
  *
  *  \return True if ready to send message(s).
  */
-static bool S_connectToCloudMqttionManager(bool forceConnect, bool resetConnection)
+static bool S_ntwkConnectionManager(bool reqstConn)
 {
     static uint32_t onConnectAt;              // if in on-demand mode: when did the connection start
     static uint32_t lastReconnectAt;          // if in reconnect condition: wait short interval between reconnection attempts
 
     bool performConnect = false;
     bool performDisconnect = false;
-    bool isReady = false;
 
-    //PRINTF(0, "CloudConnMgr force=%d, reset=%d\r", forceConnect, resetConnection);
-
-    lqcConnectState_t connState = lqc_getConnectState("", forceConnect);
-    performConnect = forceConnect && connState != lqcConnectState_ready;
-
-    if (!performConnect)
+    bool modeConnect = g_lqCloud.connectMode == lqcConnectMode_continuous || g_lqCloud.connectMode == lqcConnectMode_required;
+    if (g_lqCloud.connectMode == lqcConnectMode_onDemand) 
     {
-        if (g_lqCloud.connectMode == lqcConnectMode_onDemand) 
-        {
-            if (wrkTime_doNow(&g_lqCloud.connectSched && connState != lqcConnectState_connected))
-                performConnect = true;
-
-            if (wrkTime_isElapsed(onConnectAt, PERIOD_FROM_SECONDS(lqc__connection_onDemand_connDurationSecs)))
-                performDisconnect = true;
-        }
-
-        else if (g_lqCloud.connectMode == lqcConnectMode_continuous)
-        {
-            isReady = connState == lqcConnectState_ready;
-            performConnect = !isReady;
-        }
-
-        else    // g_lqCloud.connectMode == lqcConnectMode_required
-        {
-            if (connState != lqcConnectState_ready)
-            {
-                performConnect = true;
-                LQC_notifyApp(lqNotifType__lqcloud_disconnect, "Awaiting LQC Connect");
-            }
-        }
+        modeConnect == modeConnect || wrkTime_doNow(&g_lqCloud.connectSched);
+        performDisconnect = wrkTime_isElapsed(onConnectAt, PERIOD_FROM_SECONDS(lqc__connection_onDemand_connDurationSecs));
     }
+    bool excessiveRetries = g_lqCloud.mqttSendQueue[g_lqCloud.mqttQueuedTail].retries > LQC__sendRetriesMax;
+
+    PRINTF(0, "NtwkConnMgr lqcState=%d reqst=%d mode=%d excssRtry=%d\r", g_lqCloud.connectState, reqstConn, modeConnect, excessiveRetries);
+
+    performConnect = g_lqCloud.connectState != lqcConnectState_ready && (reqstConn || modeConnect || excessiveRetries);
+    if (g_lqCloud.connectState == lqcConnectState_ready && !performConnect)
+        return true;
 
     /* required connection actions determined above, now change state if required
      --------------------------------------------------------------------------------- */
-    if (performDisconnect || resetConnection)   // disconnect first to support reset
-    {
-        onConnectAt = 0;                        // stop connection duration timer (applicable to on-demand)
-        mqtt_close(g_lqCloud.mqttCtrl);                           // close MQTT messaging session
-
-        if (g_lqCloud.networkStopCB)            // put communications hardware to sleep (or turn-off)
-            g_lqCloud.networkStopCB();
-    }
-
-
-    if (performConnect || resetConnection)
+    if (performConnect)
     {
         bool ntwkStarted = true;                // assume true, networkStartCB() will be authoritive if invoked
         while (true)                            // do connect(), if not successful wait briefly for conditions to change then retry: FOREVER!
         {
             if (g_lqCloud.networkStartCB)
-                ntwkStarted = g_lqCloud.networkStartCB();
+                ntwkStarted = g_lqCloud.networkStartCB(excessiveRetries);
 
             if (ntwkStarted && S_connectToCloudMqtt() == lqcConnectState_ready)
                 return true;
 
-            if (forceConnect ||
-                g_lqCloud.connectMode == lqcConnectMode_required)
+            if (reqstConn || g_lqCloud.connectMode == lqcConnectMode_required)
             {
-                LQC_notifyApp(lqNotifType__lqcloud_disconnect, "");
+                LQC_notifyApp(lqNotifType_lqcloud_disconnect, "");
                 pDelay(lqc__connection_required_retryIntrvlSecs);
                 continue;
             }
@@ -494,7 +492,16 @@ static bool S_connectToCloudMqttionManager(bool forceConnect, bool resetConnecti
         }
     }
 
-    return isReady;
+    if (performDisconnect)
+    {
+        onConnectAt = 0;                        // stop connection duration timer (applicable to on-demand)
+        mqtt_close(g_lqCloud.mqttCtrl);         // close MQTT messaging session
+
+        if (g_lqCloud.networkStopCB)            // put communications hardware to sleep (or turn-off)
+            g_lqCloud.networkStopCB(false);
+    }
+
+    return false;
 }
 
 
@@ -505,34 +512,41 @@ static bool S_connectToCloudMqttionManager(bool forceConnect, bool resetConnecti
  */
 static lqcConnectState_t S_connectToCloudMqtt()
 {
+    mqttStatus_t mqttStatus = mqtt_getStatus(g_lqCloud.mqttCtrl, g_lqCloud.hostUri);
+    lqcConnectState_t lqcState = mqttStatus < mqttStatus_invalidHost ? mqttStatus : lqcConnectState_closed;
+    resultCode_t mqttRslt;
 
-    g_lqCloud.connectState = lqcConnectState_closed;
-    
-    resultCode_t rslt = mqtt_open(g_lqCloud.mqttCtrl, g_lqCloud.hostUri, lqc__connection_hostPort);
-    if (rslt == resultCode__success)
-        g_lqCloud.connectState = lqcConnectState_opened;
-    else
+    if (mqttStatus == mqttStatus_pending)
+        return lqcConnectState_connFault;
+
+    if (mqttStatus == mqttStatus_closed)                                                        // idle open MQTT server
     {
-        switch (rslt)
+        mqttRslt = mqtt_open(g_lqCloud.mqttCtrl, g_lqCloud.hostUri, lqc__connection_hostPort);
+        switch (mqttRslt)
         {
+            case resultCode__success:
+                lqcState = lqcConnectState_opened;
+                mqttStatus = mqttStatus_open;
+                break;
+
             // hard errors
             case resultCode__badRequest:
             case resultCode__notFound:
-                LQC_notifyApp(lqNotifType__hardFault, "Invalid Settings");
+                LQC_notifyApp(lqNotifType_hardFault, "Invalid Settings");
                 break;
             case resultCode__gone:
-                LQC_notifyApp(lqNotifType__lqcloud_disconnect, "Network error");
+                LQC_notifyApp(lqNotifType_lqcloud_disconnect, "Network error");
                 break;
 
             // soft errors
             case resultCode__timeout:
             case resultCode__conflict:
-                LQC_notifyApp(lqNotifType__info, "No Connect, Retrying");
+                LQC_notifyApp(lqNotifType_info, "No Connect, Retrying");
                 break;
         }
     }
 
-    if (g_lqCloud.connectState == lqcConnectState_opened)
+    if (lqcState == lqcConnectState_opened && mqttStatus == mqttStatus_open)                    // open, if not connected (or ready)... connect
     {
         char userId[lqc__identity_userIdSz];
         char tokenSAS[lqc__identity_tokenSasSz];
@@ -540,38 +554,38 @@ static lqcConnectState_t S_connectToCloudMqtt()
         snprintf(userId, sizeof(userId), IotHubTemplate_sas_userId, g_lqCloud.hostUri, g_lqCloud.deviceId);
         lqc_composeTokenSas(tokenSAS, sizeof(tokenSAS), g_lqCloud.hostUri, g_lqCloud.deviceId, g_lqCloud.tokenSigExpiry);
 
-        rslt = mqtt_connect(g_lqCloud.mqttCtrl, g_lqCloud.deviceId, userId, tokenSAS, mqttSession_cleanStart);
-        if (rslt == resultCode__success)
-            g_lqCloud.connectState = lqcConnectState_connected;
-        else
+        mqttRslt = mqtt_connect(g_lqCloud.mqttCtrl, g_lqCloud.deviceId, userId, tokenSAS, mqttSession_cleanStart);
+        switch (mqttRslt)
         {
-            switch (rslt)
-            {
-                // hard errors
-                case resultCode__unavailable:
-                case resultCode__badRequest:
-                    LQC_notifyApp(lqNotifType__hardFault, "Invalid Settings");
-                    break;
-                case resultCode__forbidden:
-                    LQC_notifyApp(lqNotifType__hardFault, "Not Authorized");
-                    break;
-                // soft errors
-                case resultCode__timeout:
-                    break;
-            }
+            case resultCode__success:
+                lqcState = lqcConnectState_connected;
+                mqttStatus = mqttStatus_connected;
+                break;
+
+            // hard errors
+            case resultCode__unavailable:
+            case resultCode__badRequest:
+                LQC_notifyApp(lqNotifType_hardFault, "Invalid Settings");
+                break;
+            case resultCode__forbidden:
+                LQC_notifyApp(lqNotifType_hardFault, "Not Authorized");
+                break;
+
+            // soft errors
+            case resultCode__timeout:
+                break;
         }
     }
 
-    if (g_lqCloud.connectState == lqcConnectState_connected)
+    if (lqcState == lqcConnectState_connected && mqttStatus == mqttStatus_connected)            // mqtt status agrees, verify subscribed
     {
         char subscribeTopic[mqtt__topic_nameSz];
         snprintf(subscribeTopic, sizeof(subscribeTopic), IoTHubTemplate_C2D_recvTopic, g_lqCloud.deviceId);
 
-        rslt = mqtt_subscribe(g_lqCloud.mqttCtrl, subscribeTopic, mqttQos_1);
-        if (rslt == resultCode__success)
+        mqttRslt = mqtt_subscribe(g_lqCloud.mqttCtrl, subscribeTopic, mqttQos_1);
+        if (mqttRslt == resultCode__success)
             g_lqCloud.connectState = lqcConnectState_ready;
     }
-
     return g_lqCloud.connectState;
 }
 
