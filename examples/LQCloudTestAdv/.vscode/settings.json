@@ -26,7 +26,8 @@
         "lq-str.h": "c",
         "lqcloud.h": "c",
         "lqc-internal.h": "c",
-        "stdbool.h": "c"
+        "stdbool.h": "c",
+        "ltemc-nxp-sc16is.h": "c"
     },
     "C_Cpp.loggingLevel": "Debug",
     "C_Cpp.errorSquiggles": "Enabled"

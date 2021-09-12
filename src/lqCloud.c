@@ -461,34 +461,33 @@ static bool S_ntwkConnectionManager(bool reqstConn)
         modeConnect == modeConnect || wrkTime_doNow(&g_lqCloud.connectSched);
         performDisconnect = wrkTime_isElapsed(onConnectAt, PERIOD_FROM_SECONDS(lqc__connection_onDemand_connDurationSecs));
     }
-    bool excessiveRetries = g_lqCloud.mqttSendQueue[g_lqCloud.mqttQueuedTail].retries > LQC__sendRetriesMax;
+    g_lqCloud.connectionErrors = g_lqCloud.mqttSendQueue[g_lqCloud.mqttQueuedTail].retries > LQC__sendRetriesMax;
+    performConnect = (g_lqCloud.connectState != lqcConnectState_ready && (reqstConn || modeConnect)) || 
+                      g_lqCloud.connectionErrors;
 
-    PRINTF(0, "NtwkConnMgr lqcState=%d reqst=%d mode=%d excssRtry=%d\r", g_lqCloud.connectState, reqstConn, modeConnect, excessiveRetries);
-
-    performConnect = g_lqCloud.connectState != lqcConnectState_ready && (reqstConn || modeConnect || excessiveRetries);
     if (g_lqCloud.connectState == lqcConnectState_ready && !performConnect)
         return true;
+
+    PRINTF(0, "NtwkConnMgr lqcState=%d reqst=%d mode=%d connErr=%d\r", g_lqCloud.connectState, reqstConn, modeConnect, g_lqCloud.connectionErrors);
 
     /* required connection actions determined above, now change state if required
      --------------------------------------------------------------------------------- */
     if (performConnect)
     {
-        bool ntwkStarted = true;                // assume true, networkStartCB() will be authoritive if invoked
-        while (true)                            // do connect(), if not successful wait briefly for conditions to change then retry: FOREVER!
+        while (true)                                    // do connect(), if not successful wait briefly for conditions to change then retry: FOREVER!
         {
-            if (g_lqCloud.networkStartCB)
-                ntwkStarted = g_lqCloud.networkStartCB(excessiveRetries);
+            bool ntwkStarted = true;                    // assume true, networkStartCB() will override if invoked
+            if (g_lqCloud.networkStartCB)               // gaurd against null func pointer
+                ntwkStarted = g_lqCloud.networkStartCB(g_lqCloud.connectionErrors);
 
             if (ntwkStarted && S_connectToCloudMqtt() == lqcConnectState_ready)
                 return true;
 
-            if (reqstConn || g_lqCloud.connectMode == lqcConnectMode_required)
-            {
-                LQC_notifyApp(lqNotifType_lqcloud_disconnect, "");
-                pDelay(lqc__connection_required_retryIntrvlSecs);
-                continue;
-            }
-            break;
+            g_lqCloud.connectionErrors = true;
+            LQC_notifyApp(lqNotifType_lqcloud_disconnect, "");
+
+            if (g_lqCloud.connectMode != lqcConnectMode_required)
+                return false;
         }
     }
 
@@ -498,7 +497,9 @@ static bool S_ntwkConnectionManager(bool reqstConn)
         mqtt_close(g_lqCloud.mqttCtrl);         // close MQTT messaging session
 
         if (g_lqCloud.networkStopCB)            // put communications hardware to sleep (or turn-off)
+        {
             g_lqCloud.networkStopCB(false);
+        }
     }
 
     return false;

@@ -80,7 +80,7 @@
 */
 
 // put your LQCloud SASToken here (yep, this one is expired)
-#define LQCLOUD_TOKEN "SharedAccessSignature sr=iothub-dev-pelogical.azure-devices.net%2Fdevices%2F867198053224766&sig=zlkmqXDdb9ebeRBOMssHj0XHOSllIpXc5zKdBFgSTec%3D&se=1628439070"
+#define LQCLOUD_TOKEN "SharedAccessSignature sr=iothub-dev-pelogical.azure-devices.net%2Fdevices%2F867198053225169&sig=6MqXFz5j%2BHL%2BuUV8q2tX%2Bs4rD2a%2BsmYaN7xzC78oqc0%3D&se=1632702104"
 // organization key used to validate configuration and binary files and C2D (cloud-to-device) action commands
 const char *orgKey = "B89B3C5768B4280E2CE49336FD4EC752DE43BE14E153A6523AD0D71AAC83B4DC";
 
@@ -169,6 +169,7 @@ void setup() {
     PRINTF(dbgColor__red, "LooUQ Cloud - CloudTest\r");
     lqDiag_registerNotifCallback(appNotifCB);               // the LQ ASSERT\Diagnostics subsystem can report a fault back to app for local display (aka RED light)
     lqDiag_setResetCause(lqSAMD_getResetCause());
+    PRINTF(dbgColor__none, "RCause=%d\r", lqSAMD_getResetCause());
 
     #ifdef ENABLE_NEOPIXEL
     FastLED.addLeds<NEOPIXEL, 8>(pixels, 1);
@@ -193,12 +194,12 @@ void setup() {
     PRINTF(dbgColor__blue,"Flash chip JEDEC ID: %x\r", flash.getJEDECID());
 
     /* Do a round-trip through flashDictionary for testing purposes */
-    flashDictionary.eraseAll();                                                                     // erase FLASH
-    lqcDeviceConfigWr = lqc_decomposeTokenSas(LQCLOUD_TOKEN);                                       // write config to FLASH
-    fresult = flashDictionary.write(201, &lqcDeviceConfigWr, sizeof(lqcDeviceConfig_t), true);      // lqcDeviceConfigWr = lqc_decomposeTokenSas(LQCLOUD_TOKEN);
+    // flashDictionary.eraseAll();                                                                     // erase FLASH
+    // lqcDeviceConfigWr = lqc_decomposeTokenSas(LQCLOUD_TOKEN);                                       // write config to FLASH
+    // fresult = flashDictionary.write(201, &lqcDeviceConfigWr, sizeof(lqcDeviceConfig_t), true);      // lqcDeviceConfigWr = lqc_decomposeTokenSas(LQCLOUD_TOKEN);
 
     fresult = flashDictionary.readByKey(201, &lqcDeviceConfigRd, sizeof(lqcDeviceConfig_t));        // read config from FLASH
-    char lqcToken[160];
+    char lqcToken[180];
     lqc_composeTokenSas(lqcToken, sizeof(lqcToken), lqcDeviceConfigRd.hostUri, lqcDeviceConfigRd.deviceId, lqcDeviceConfigRd.tokenSigExpiry);
 
     // device application setup and initialization
@@ -207,6 +208,7 @@ void setup() {
     digitalWrite(ledPin, HIGH);                             // LED off
 
     ltem_create(ltem_pinConfig, appNotifCB);                // create modem\transport reference
+    //ltem_setYieldCb(resetWatchdog);
     ltem_start();
 
     /* Add LQCloud to project and register local service callbacks.
@@ -297,7 +299,12 @@ void loop()
     ltem_doWork();
     lqc_doWork();
     applWork_doFlashLed();
+    resetWatchdog();
+}
 
+
+void resetWatchdog()
+{
     // IMPORTANT! pet the dog to keep dog happy and app alive
     // #define WD_FAULT_TEST 3
     // ---------------------------------------------------------
@@ -308,7 +315,6 @@ void loop()
         lqSAMD_wdReset();
     #endif
 }
-
 
 
 /* LQCloud Network Action Callbacks
@@ -328,10 +334,10 @@ void loop()
 bool networkStart(bool reset)
 {
     if (reset)
-    {
         ltem_reset();
-    }
 
+    if (loopCnt > 2)
+        while (true) {}
 
     if (ltem_getReadyState() != qbg_readyState_appReady)
         ltem_start();                                           // start modem processing
@@ -372,7 +378,7 @@ bool networkStart(bool reset)
 
 
 // typedef for function pointer: lqcNtwkStop_func >> typedef void (*lqcNtwkStop_func)()
-void networkStop(bool sleep)
+void networkStop()
 {
 }
 
@@ -382,33 +388,12 @@ void networkStop(bool sleep)
 
 void appNotifCB(uint8_t notifType, const char *notifMsg)
 {
-    switch (notifType)
-    {
-        case lqNotifType_info:
-            PRINTF(dbgColor__info, "LQCloud Info: %s\r", notifMsg);
-            return;
-
-        case lqNotifType_lqcloud_connect:
-            PRINTF(dbgColor__info, "LQCloud Connected\r");
-            #ifdef ENABLE_NEOPIXEL
-                pixels[0] = CRGB::Green; 
-                FastLED.show();
-            #endif
-            return;
-
-        case lqNotifType_lqcloud_disconnect:
-            PRINTF(dbgColor__warn, "LQCloud Disconnected\r");
-            #ifdef ENABLE_NEOPIXEL
-                pixels[0] = CRGB::Magenta; 
-                FastLED.show();
-            #endif
-            return;
-    }
-
-    if (notifType > lqNotifType__CATASTROPHIC)
+    if (notifType > lqNotifType__LQDEVICE)
+        // notifType > lqNotifType__CATASTROPHIC)
     {
         PRINTF(dbgColor__error, "LQCloud-HardFault: %s\r", notifMsg);
         // update local indicators like LEDs, OLED, etc.
+        lqDiag_setApplicationMessage(notifType, notifMsg);
         #ifdef ENABLE_NEOPIXEL
             pixels[0] = CRGB::Red; 
             FastLED.show();
@@ -423,9 +408,33 @@ void appNotifCB(uint8_t notifType, const char *notifMsg)
         // now gather more invasive data, data requiring functioning LTEmC driver
         //lqDiagInfo.applProtoState = lqc_getConnectState("", true);            // now force read MQTT state from transport
 
-        assert_brk();
-        while (true) {}                                                         // should never get here
+        //assert_brk();
+        while (true) {}                                                         // end of the road
     }
+    else if (notifType == lqNotifType_lqcloud_connect)
+    {
+        PRINTF(dbgColor__info, "LQCloud Connected\r");
+        #ifdef ENABLE_NEOPIXEL
+            pixels[0] = CRGB::Green; 
+            FastLED.show();
+        #endif
+        return;
+    }
+    else if (notifType == lqNotifType_lqcloud_disconnect)
+    {
+        PRINTF(dbgColor__warn, "LQCloud Disconnected\r");
+        #ifdef ENABLE_NEOPIXEL
+            pixels[0] = CRGB::Magenta; 
+            FastLED.show();
+        #endif
+        return;
+    }
+    else //(notifType == lqNotifType_info)
+    {
+        PRINTF(dbgColor__info, "LQCloud Info: %s\r", notifMsg);
+        return;
+    }
+
 }
 
 

@@ -47,7 +47,7 @@ enum
     LQC__messageIdSz = 36,
 
     LQC__sendRetryDelayMS = 5000,
-    LQC__sendRetriesMax = 3,
+    LQC__sendRetriesMax = 2,
     LQC__connectionRetryWaitSec = 120,
 
     LQMQ_MSG_MAXSZ = 1548,                                  ///< largest MQTT send message for BGx
@@ -167,6 +167,7 @@ typedef struct lqCloudDevice_tag
     lqcConnectMode_t connectMode;                           ///< Device to Cloud connection mode: OnDemand, Continuous, Required.
     wrkTime_t *connectSched;                                ///< If connection mode OnDemand: period timer for when to connect
     lqcConnectState_t connectState;                         ///< Device to Cloud connection state: Closed, Open, Connected, Subscribed
+    bool connectionErrors;                                  ///< Set on connection failure or excessive send retries.
     uint8_t onDemandTimeoutMinutes;                         ///< The time the communications channel stays open for onDemand mode.
     lqcMqttQueuedMsg_t mqttSendQueue[LQC__sendQueueSz];     ///< Outgoing messages, only queue if initial send fails
     uint8_t mqttQueuedHead;                                 ///< array index of next message (from queued order)

@@ -207,8 +207,8 @@ typedef uint16_t (*battStatus_func)();                                      ///<
 typedef uint32_t (*memStatus_func)();                                       ///< (optional) callback into appl to determine memory available (between stack and heap)
 typedef int16_t (*ntwkSignal_func)();                                       ///< (optional) callback into appl to determine network signal strength
 
-typedef bool (*ntwkStart_func)(bool resetNtwk);                             ///< callback into appl to wake communications hardware, returns true if HW was made ready
-typedef void (*ntwkStop_func)(bool disconnect);                             ///< callback into appl to sleep or fully discconnect communications hardware
+typedef bool (*ntwkStart_func)(bool reset);                                 ///< callback into appl to wake communications hardware, returns true if HW was made ready
+typedef void (*ntwkStop_func)();                                            ///< callback into appl to sleep or fully discconnect communications hardware
 
 
 /** 
