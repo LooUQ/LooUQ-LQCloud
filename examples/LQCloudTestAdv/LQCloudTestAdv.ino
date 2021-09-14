@@ -80,7 +80,7 @@
 */
 
 // put your LQCloud SASToken here (yep, this one is expired)
-#define LQCLOUD_TOKEN "SharedAccessSignature sr=iothub-dev-pelogical.azure-devices.net%2Fdevices%2F867198053225169&sig=6MqXFz5j%2BHL%2BuUV8q2tX%2Bs4rD2a%2BsmYaN7xzC78oqc0%3D&se=1632702104"
+#define LQCLOUD_TOKEN "SharedAccessSignature sr=iothub-dev-pelogical.azure-devices.net%2Fdevices%2F867198053225169&sig=1iP6gpTw5%2BlsMGpWB%2BCUwY%2FWSLdGxYD0%2FlywxE5Yu5Y%3D&se=1631966544"
 // organization key used to validate configuration and binary files and C2D (cloud-to-device) action commands
 const char *orgKey = "B89B3C5768B4280E2CE49336FD4EC752DE43BE14E153A6523AD0D71AAC83B4DC";
 
@@ -336,11 +336,8 @@ bool networkStart(bool reset)
     if (reset)
         ltem_reset();
 
-    if (loopCnt > 2)
-        while (true) {}
-
     if (ltem_getReadyState() != qbg_readyState_appReady)
-        ltem_start();                                           // start modem processing
+        ltem_start();                                               // start modem processing
 
     networkOperator_t networkOp = ntwk_awaitOperator(30000);
 
@@ -427,6 +424,7 @@ void appNotifCB(uint8_t notifType, const char *notifMsg)
             pixels[0] = CRGB::Magenta; 
             FastLED.show();
         #endif
+        lqDiag_setApplicationMessage(notifType, notifMsg);
         return;
     }
     else //(notifType == lqNotifType_info)

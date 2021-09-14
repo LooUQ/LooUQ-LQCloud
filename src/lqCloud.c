@@ -162,9 +162,9 @@ void lqc_start(mqttCtrl_t *mqttCtrl, const char *tokenSas)
         retries++;
         if (retries > LQC__connectionRetryCnt)
         {
-            LQC_notifyApp(lqNotifType_lqcloud_disconnect, "");
+            LQC_notifyApp(lqNotifType_lqcloud_disconnect, "LQC-Start");
             retries = 0;
-            pDelay(PERIOD_FROM_MINUTES(60));
+            pDelay(PERIOD_FROM_MINUTES(20));
         }
     }
     LQC_notifyApp(lqNotifType_lqcloud_connect, "");
@@ -461,7 +461,7 @@ static bool S_ntwkConnectionManager(bool reqstConn)
         modeConnect == modeConnect || wrkTime_doNow(&g_lqCloud.connectSched);
         performDisconnect = wrkTime_isElapsed(onConnectAt, PERIOD_FROM_SECONDS(lqc__connection_onDemand_connDurationSecs));
     }
-    g_lqCloud.connectionErrors = g_lqCloud.mqttSendQueue[g_lqCloud.mqttQueuedTail].retries > LQC__sendRetriesMax;
+    g_lqCloud.connectionErrors = g_lqCloud.connectionErrors || g_lqCloud.mqttSendQueue[g_lqCloud.mqttQueuedTail].retries > LQC__sendRetriesMax;
     performConnect = (g_lqCloud.connectState != lqcConnectState_ready && (reqstConn || modeConnect)) || 
                       g_lqCloud.connectionErrors;
 
@@ -484,7 +484,7 @@ static bool S_ntwkConnectionManager(bool reqstConn)
                 return true;
 
             g_lqCloud.connectionErrors = true;
-            LQC_notifyApp(lqNotifType_lqcloud_disconnect, "");
+            LQC_notifyApp(lqNotifType_lqcloud_disconnect, "LQC:CMgr");
 
             if (g_lqCloud.connectMode != lqcConnectMode_required)
                 return false;
@@ -536,7 +536,7 @@ static lqcConnectState_t S_connectToCloudMqtt()
                 LQC_notifyApp(lqNotifType_hardFault, "Invalid Settings");
                 break;
             case resultCode__gone:
-                LQC_notifyApp(lqNotifType_lqcloud_disconnect, "Network error");
+                LQC_notifyApp(lqNotifType_lqcloud_disconnect, "MQTT(410)");
                 break;
 
             // soft errors

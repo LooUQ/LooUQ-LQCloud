@@ -1,6 +1,6 @@
 {
     "sketch": "LQCloudTestAdv.ino",
-    "port": "COM4",
+    "port": "COM23",
     "board": "adafruit:samd:adafruit_feather_m0_express",
     "debugger": "jlink",
     "output": ".\\.build",
