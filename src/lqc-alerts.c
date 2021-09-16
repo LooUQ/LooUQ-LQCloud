@@ -108,8 +108,8 @@ bool lqc_sendAlert(const char *alrtName, const char *alrtSummary, const char *bo
  */
 void LQC_sendDeviceStarted(uint8_t rcause)
 {
-    char summary[lqc__event_summarySz] = {0};
-    char body[lqc__event_bodySz] = {0};
+    char summary[lqc__msg_summarySz] = {0};
+    char body[lqc__msg_bodySz] = {0};
     char restartDescr[18] = {0};
 
     // summary is a simple C-string, body is a string formatted as a JSON object
@@ -133,8 +133,8 @@ void LQC_sendDeviceStarted(uint8_t rcause)
  */
 bool LQC_sendDiagAlert(diagnosticInfo_t * diagInfo)
 {
-    char summary[lqc__event_summarySz] = {0};
-    char body[lqc__event_bodySz] = {0};
+    char summary[lqc__msg_summarySz] = {0};
+    char body[lqc__msg_bodySz] = {0};
 
 /*
     {\"dId\":\"%s\",\"diag\":{
@@ -162,8 +162,8 @@ bool LQC_sendDiagAlert(diagnosticInfo_t * diagInfo)
 
 bool LQC_sendAlert(lqcEventClass_t alrtClass, const char *alrtName, const char *alrtSummary, const char *bodyJson)
 {
-    char msgEvntName[lqc__event_nameSz] = {0};
-    char msgEvntSummary[lqc__event_summarySz] = {0};
+    char msgEvntName[lqc__msg_nameSz] = {0};
+    char msgEvntSummary[lqc__msg_summarySz] = {0};
     char msgTopic[LQMQ_TOPIC_PUB_MAXSZ];
     char msgBody[LQMQ_MSG_MAXSZ]; 
     char eventClass[5];

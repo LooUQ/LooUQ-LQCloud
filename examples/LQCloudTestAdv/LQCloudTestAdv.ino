@@ -48,10 +48,10 @@
 // define options for how to assemble this build
 #define HOST_FEATHER_UXPLOR             // specify the pin configuration
 
-#include <lq-diagnostics.h>
 #include <lq-collections.h>             // using LooUQ collections with mqtt
 #include <lq-str.h>
-#include <lq-SAMDcore.h>
+#include <lq-diagnostics.h>
+#include <lq-SAMDutil.h>
 
 #include <ltemc.h>
 #include <ltemc-tls.h>                  // LQCloud requires MQTT over TLS v1.2
@@ -113,8 +113,8 @@ char mqttMessage[200];                      // application buffer to craft TX MQ
 // Configuration persistence with flash services
 #include <SPI.h>                        
 #include <Adafruit_SPIFlashBase.h>          // Adafruit SPI Flash extensions
-#include <lq-flashDictionary.h>             // LooUQ flashDictionary struct persistence
-#include <lq-pkgSrvcClient.h>               // Support for over-the-air update to flashDictionary items 
+#include <lq-persistStructs.h>              // LooUQ flash struct persistence
+#include <lq-provisioning.h>                // Support for over-the-air update 
 
 Adafruit_FlashTransport_SPI flashTransport(EXTERNAL_FLASH_USE_CS, EXTERNAL_FLASH_USE_SPI);
 // #if defined(EXTERNAL_FLASH_USE_QSPI)
@@ -167,7 +167,7 @@ void setup() {
     #endif
 
     PRINTF(dbgColor__red, "LooUQ Cloud - CloudTest\r");
-    lqDiag_registerNotifCallback(appNotifCB);               // the LQ ASSERT\Diagnostics subsystem can report a fault back to app for local display (aka RED light)
+    lqDiag_registerNotifCallback(eventNotifCB);               // the LQ ASSERT\Diagnostics subsystem can report a fault back to app for local display (aka RED light)
     lqDiag_setResetCause(lqSAMD_getResetCause());
     PRINTF(dbgColor__none, "RCause=%d\r", lqSAMD_getResetCause());
 
@@ -207,13 +207,14 @@ void setup() {
     pinMode(ledPin, OUTPUT);
     digitalWrite(ledPin, HIGH);                             // LED off
 
-    ltem_create(ltem_pinConfig, appNotifCB);                // create modem\transport reference
-    //ltem_setYieldCb(resetWatchdog);
+    ltem_create(ltem_pinConfig, eventNotifCB);              // create modem\transport reference and wire-up device event callbacks
+    ltem_setYieldCallback(resetWatchdog);
     ltem_start();
+    PRINTF(dbgColor__none, "BGx %s\r", lqDiag_setHwVersion(mdminfo_ltem().fwver));
 
     /* Add LQCloud to project and register local service callbacks.
      * ----------------------------------------------------------------------------------------- */
-    lqc_create(orgKey, "LQC-DEV", appNotifCB, networkStart, networkStop, NULL, getBatteryStatus, getFreeMemory);
+    lqc_create(orgKey, "LQC-DEV", eventNotifCB, networkStart, networkStop, NULL, getBatteryStatus, getFreeMemory);
     /* Callbacks (param 3-8)
      * - cloudNotificationsHandler: cloud informs app of events
      * - networkStart: calls back to application to perform the steps required to start the network transport
@@ -279,7 +280,7 @@ void loop()
         bool thisSend = lqc_sendTelemetry("LQ CloudTest", summary, body);
 
         if (!thisSend && !lastSendSuccessful)
-             appNotifCB(lqNotifType_hardFault, "Successive send errors");
+             eventNotifCB(lqNotifType_hardFault, 0, 0, "Successive send errors");
         lastSendSuccessful = thisSend;
         loopCnt++;
     }
@@ -366,7 +367,7 @@ bool networkStart(bool reset)
             }
             PRINTF(dbgColor__white, ".");
             connAttempts++;
-            pDelay(500);
+            pDelay(5000);
         }
         while (connAttempts < 3);
     }
@@ -383,10 +384,9 @@ void networkStop()
 /* Application "other" Callbacks
 ========================================================================================================================= */
 
-void appNotifCB(uint8_t notifType, const char *notifMsg)
+void eventNotifCB(uint8_t notifType, uint8_t notifAssm, uint8_t notifInst, const char *notifMsg)
 {
-    if (notifType > lqNotifType__LQDEVICE)
-        // notifType > lqNotifType__CATASTROPHIC)
+    if (notifType >= lqNotifType__CATASTROPHIC)
     {
         PRINTF(dbgColor__error, "LQCloud-HardFault: %s\r", notifMsg);
         // update local indicators like LEDs, OLED, etc.
@@ -408,7 +408,19 @@ void appNotifCB(uint8_t notifType, const char *notifMsg)
         //assert_brk();
         while (true) {}                                                         // end of the road
     }
-    else if (notifType == lqNotifType_lqcloud_connect)
+
+    else if (notifType >= lqNotifType__WARNING)
+    {
+        PRINTF(dbgColor__warn, "LQCloud-Warning: %s\r", notifMsg);
+        // update local indicators like LEDs, OLED, etc.
+        lqDiag_setApplicationMessage(notifType, notifMsg);
+        #ifdef ENABLE_NEOPIXEL
+            pixels[0] = CRGB::Orange; 
+            FastLED.show();
+        #endif
+    }
+
+    else if (notifType == lqNotifType_connect)
     {
         PRINTF(dbgColor__info, "LQCloud Connected\r");
         #ifdef ENABLE_NEOPIXEL
@@ -417,7 +429,8 @@ void appNotifCB(uint8_t notifType, const char *notifMsg)
         #endif
         return;
     }
-    else if (notifType == lqNotifType_lqcloud_disconnect)
+
+    else if (notifType == lqNotifType_disconnect)
     {
         PRINTF(dbgColor__warn, "LQCloud Disconnected\r");
         #ifdef ENABLE_NEOPIXEL
@@ -427,7 +440,8 @@ void appNotifCB(uint8_t notifType, const char *notifMsg)
         lqDiag_setApplicationMessage(notifType, notifMsg);
         return;
     }
-    else //(notifType == lqNotifType_info)
+
+    else                                                            //(notifType == lqNotifType_info)
     {
         PRINTF(dbgColor__info, "LQCloud Info: %s\r", notifMsg);
         return;
@@ -436,17 +450,16 @@ void appNotifCB(uint8_t notifType, const char *notifMsg)
 }
 
 
+/* Note: A7 (aka pin digital 9) can do double duty with compatible functions. In this example
+ * the pin is also a digital input sensing a button press. The voltage divider sensing the 
+ * battery voltage (Adafruit Feather) keeps pin 9/A7 at about 2v (aka logic HIGH).
+*/
 
 #define VBAT_ENABLED 
 #define VBAT_PIN 9          // aka A7, which is not necessarily defined in variant.h
 #define VBAT_DIVIDER 2
 #define AD_SCALE 1023
 #define AD_VREF 3300        // milliVolts
-
-/* Note: A7 (aka pin digital 9) can do double duty with compatible functions. In this example
- * the pin is also a digital input sensing a button press. The voltage divider sensing the 
- * battery voltage (Adafruit Feather) keeps pin 9/A7 at about 2v (aka logic HIGH).
-*/
 
 /**
  *	\brief Get feather battery status 

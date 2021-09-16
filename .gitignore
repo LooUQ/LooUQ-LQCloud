@@ -34,3 +34,4 @@ tests/*/.build
 *.exe
 *.out
 *.app
+examples/LQCloudTestAdv/.vscode/c_cpp_properties.json

@@ -31,7 +31,7 @@
 // #include "lqcloud.h"
 #include "lqc-internal.h"
 #include "lqc-azure.h"
-#include <lq-SAMDcore.h>
+#include <lq-SAMDutil.h>
 
 
 #define _DEBUG 2                        // set to non-zero value for PRINTF debugging output, 
@@ -81,7 +81,7 @@ static void S_cloudSenderDoWork();
 //void lqc_create(notificationType_func appNotificationCB, pwrStatus_func pwrStatCB, battStatus_func battStatCB, memStatus_func memStatCB)
 void lqc_create(const char *organizationKey,
                 const char *deviceLabel,
-                appNotify_func notificationCB, 
+                eventNotif_func notificationCB, 
                 ntwkStart_func ntwkStartCB,
                 ntwkStop_func ntwkStopCB,
                 pwrStatus_func pwrStatCB, 
@@ -92,7 +92,7 @@ void lqc_create(const char *organizationKey,
     strncpy(g_lqCloud.deviceLabel, "LQC-Device", lqc__identity_deviceLabelSz-1);
     g_lqCloud.orgKey = organizationKey;
 
-    g_lqCloud.notificationCB = notificationCB;
+    g_lqCloud.appNotifCB = notificationCB;
     g_lqCloud.networkStartCB = ntwkStartCB;
     g_lqCloud.networkStopCB = ntwkStopCB;
     g_lqCloud.powerStatusCB = pwrStatCB;
@@ -157,17 +157,17 @@ void lqc_start(mqttCtrl_t *mqttCtrl, const char *tokenSas)
     {
         PRINTF(dbgColor__white, ".");
         snprintf(connectionMsg, 80, "LQC Start Retry=%d", retries);
-        LQC_notifyApp(lqNotifType_lqcloud_connect, connectionMsg);
+        LQC_notifyApp(lqNotifType_info, connectionMsg);
         pDelay(15000);
         retries++;
         if (retries > LQC__connectionRetryCnt)
         {
-            LQC_notifyApp(lqNotifType_lqcloud_disconnect, "LQC-Start");
+            LQC_notifyApp(lqNotifType_disconnect, "LQC-Start");
             retries = 0;
             pDelay(PERIOD_FROM_MINUTES(20));
         }
     }
-    LQC_notifyApp(lqNotifType_lqcloud_connect, "");
+    // LQC_notifyApp(lqNotifType_connect, "");
     LQC_sendDeviceStarted(lqSAMD_getResetCause());
 }
 
@@ -260,6 +260,38 @@ void lqc_doWork()
     S_cloudSenderDoWork();       // internally calls mqttConnectionManager() to set-up/tear-down LQC connection
 }
 
+
+/**
+ *	\brief Pass event notification up-the-stack, optionally process them.
+ */
+void lqc_eventNotifCallback(uint8_t notifType, uint8_t notifAssm, uint8_t notifInst, const char *notifMsg)
+{
+    uint8_t handled = 0;
+
+    if (g_lqCloud.appNotifCB != NULL)
+    {
+        switch (notifType)
+        {
+        case lqNotifType_connect:
+            handled++;
+            /* code */
+            break;
+        
+        default:
+            break;
+        }
+
+        if (g_lqCloud.appNotifCB != NULL)
+        {
+            if (handled)
+                g_lqCloud.appNotifCB(notifType, lqNotifAssm_lqcloud, 0, notifMsg);            
+            else
+                g_lqCloud.appNotifCB(notifType, notifAssm, notifInst, notifMsg);
+        }
+    }
+}
+
+
 #pragma endregion
 
 
@@ -275,8 +307,8 @@ void lqc_doWork()
  */
 void LQC_notifyApp(uint8_t notifType, const char *notifMsg)
 {
-    if (g_lqCloud.notificationCB)
-        g_lqCloud.notificationCB(notifType, notifMsg);
+    if (g_lqCloud.appNotifCB)
+        g_lqCloud.appNotifCB(notifType, lqNotifAssm_lqcloud, 0, notifMsg);
 }
 
 
@@ -481,10 +513,12 @@ static bool S_ntwkConnectionManager(bool reqstConn)
                 ntwkStarted = g_lqCloud.networkStartCB(g_lqCloud.connectionErrors);
 
             if (ntwkStarted && S_connectToCloudMqtt() == lqcConnectState_ready)
+            {
+                LQC_notifyApp(lqNotifType_connect, "NtwkCMgr");
                 return true;
-
+            }
             g_lqCloud.connectionErrors = true;
-            LQC_notifyApp(lqNotifType_lqcloud_disconnect, "LQC:CMgr");
+            LQC_notifyApp(lqNotifType_disconnect, "NtwkCMgr");
 
             if (g_lqCloud.connectMode != lqcConnectMode_required)
                 return false;
@@ -536,7 +570,7 @@ static lqcConnectState_t S_connectToCloudMqtt()
                 LQC_notifyApp(lqNotifType_hardFault, "Invalid Settings");
                 break;
             case resultCode__gone:
-                LQC_notifyApp(lqNotifType_lqcloud_disconnect, "MQTT(410)");
+                LQC_notifyApp(lqNotifType_disconnect, "MQTT(410)");
                 break;
 
             // soft errors

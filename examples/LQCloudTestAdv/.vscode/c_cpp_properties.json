@@ -40,7 +40,8 @@
                 "c:\\users\\gregterrell\\appdata\\local\\arduino15\\packages\\adafruit\\tools\\arm-none-eabi-gcc\\9-2019q4\\arm-none-eabi\\include\\c++\\9.2.1\\backward",
                 "c:\\users\\gregterrell\\appdata\\local\\arduino15\\packages\\adafruit\\tools\\arm-none-eabi-gcc\\9-2019q4\\lib\\gcc\\arm-none-eabi\\9.2.1\\include",
                 "c:\\users\\gregterrell\\appdata\\local\\arduino15\\packages\\adafruit\\tools\\arm-none-eabi-gcc\\9-2019q4\\lib\\gcc\\arm-none-eabi\\9.2.1\\include-fixed",
-                "c:\\users\\gregterrell\\appdata\\local\\arduino15\\packages\\adafruit\\tools\\arm-none-eabi-gcc\\9-2019q4\\arm-none-eabi\\include"
+                "c:\\users\\gregterrell\\appdata\\local\\arduino15\\packages\\adafruit\\tools\\arm-none-eabi-gcc\\9-2019q4\\arm-none-eabi\\include",
+                "C:\\Users\\GregTerrell\\Documents\\CodeDev\\Arduino\\libraries\\LooUQ-Provisioning\\src"
             ],
             "forcedInclude": [
                 "C:\\Users\\GregTerrell\\AppData\\Local\\Arduino15\\packages\\adafruit\\hardware\\samd\\1.7.4\\cores\\arduino\\Arduino.h"
@@ -230,7 +231,6 @@
                 "__FLT32X_HAS_DENORM__=1",
                 "__INT_FAST16_TYPE__=int",
                 "__LDBL_HAS_DENORM__=1",
-                "__cplusplus=201402L",
                 "__cpp_ref_qualifiers=200710",
                 "__DEC128_MAX__=9.999999999999999999999999999999999E6144DL",
                 "__INT_LEAST32_MAX__=0x7fffffffL",
@@ -250,7 +250,6 @@
                 "__UACCUM_MIN__=0.0UK",
                 "__UACCUM_IBIT__=16",
                 "__FLT32_HAS_QUIET_NAN__=1",
-                "__GNUG__=9",
                 "__LONG_LONG_MAX__=0x7fffffffffffffffLL",
                 "__SIZEOF_SIZE_T__=4",
                 "__ULACCUM_MAX__=0XFFFFFFFFFFFFFFFFP-32ULK",

@@ -10,6 +10,7 @@
             "cwd": "${workspaceRoot}",
             "executable": ".\\.build/LQCloudTestAdv.ino.elf",
             "request": "launch",
+            "serverArgs": ["-gui"],
             "servertype": "jlink",
             "device": "ATSAMD21G18",
             "runToMain": true           

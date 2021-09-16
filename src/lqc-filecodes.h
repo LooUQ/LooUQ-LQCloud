@@ -31,7 +31,9 @@
 
 typedef enum lqcFilecodes_tag
 {
-    srcfile_lqcloud_c = 0xFE00,
+    assm_lqcloud = 0xC1,
+
+    srcfile_lqcloud_c = 0xC100,
     srcfile_actions_c,
     srcfile_alerts_c,
     srcfile_azure_c,

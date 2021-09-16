@@ -57,10 +57,10 @@ extern lqCloudDevice_t g_lqCloud;
  */
 bool lqc_sendTelemetry(const char *evntName, const char *evntSummary, const char *bodyJson)
 {
-    char msgEvntName[lqc__event_nameSz] = {0};
-    char msgEvntSummary[lqc__event_summarySz] = {0};
+    char msgEvntName[lqc__msg_nameSz] = {0};
+    char msgEvntSummary[lqc__msg_summarySz] = {0};
     char msgTopic[LQMQ_TOPIC_PUB_MAXSZ];
-    char msgBody[lqc__event_bodySz]; 
+    char msgBody[lqc__msg_bodySz]; 
     char deviceStatus[DVCSTATUS_SZ] = {0};
     char dStatusBuild[DVCSTATUS_SZ] = {0};
     

@@ -36,10 +36,10 @@
 
 enum lqcloud_constants
 {
-    lqc__event_nameSz = 41,
-    lqc__event_summarySz = 81,
-    lqc__event_overheadSz = 12,
-    lqc__event_bodySz = (mqtt__messageSz - lqc__event_summarySz - lqc__event_overheadSz),   // mqtt__messageSz from ltemc-mqtt.h
+    lqc__msg_nameSz = 41,
+    lqc__msg_summarySz = 81,
+    lqc__msg_overheadSz = 12,
+    lqc__msg_bodySz = (mqtt__messageSz - lqc__msg_summarySz - lqc__msg_overheadSz),   // mqtt__messageSz from ltemc-mqtt.h
 
     lqc__defaults_recoveryWaitSecs = 120,
 
@@ -201,7 +201,8 @@ typedef enum lqcConnectState_tag
 } lqcConnectState_t;
 
 
-typedef void (*appNotify_func)(uint8_t notifType, const char *notifMsg);    ///< (optional) app notification callback, notifyType casts to notificationType
+typedef void (*eventNotif_func)(uint8_t notifType, uint8_t notifAssm, uint8_t notifInst, const char *notifMsg);    ///< (optional) app notification callback, notifyType casts to notificationType
+
 typedef uint16_t (*pwrStatus_func)();                                       ///< (optional) callback into appl to determine power status, true if power is good
 typedef uint16_t (*battStatus_func)();                                      ///< (optional) callback into appl to determine battery status
 typedef uint32_t (*memStatus_func)();                                       ///< (optional) callback into appl to determine memory available (between stack and heap)
@@ -225,7 +226,7 @@ extern "C"
 
 void lqc_create(const char *organizationKey,
                 const char *deviceLabel,
-                appNotify_func appNotifyCB, 
+                eventNotif_func eventNotifyCB, 
                 ntwkStart_func ntwkStartCB,
                 ntwkStop_func ntwkStopCB,
                 pwrStatus_func pwrStatCB, 
@@ -241,6 +242,8 @@ lqcConnectMode_t lqc_getConnectMode();
 lqcConnectState_t lqc_getConnectState(const char *hostName);
 
 void lqc_doWork();
+void lqc_eventNotifCallback(uint8_t notifType, uint8_t notifAssm, uint8_t notifInst, const char *notifMsg);
+
 bool lqc_sendTelemetry(const char *evntName, const char *evntSummary, const char *bodyJson);
 bool lqc_sendAlert(const char *alrtName, const char *alrtSummary, const char *bodyJson);
 

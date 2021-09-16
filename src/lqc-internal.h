@@ -177,7 +177,7 @@ typedef struct lqCloudDevice_tag
     char actnMsgId[36];                    ///< Action request mId, will be aCId (correlation ID).
     char actnName[LQC__action_nameSz];                      ///< Last action requested by cloud. Is reset on action request receive.
     uint16_t actnResult;                                    ///< Action result code for last action request. 
-    appNotify_func notificationCB;                          ///< (optional) Application notification callback: LQCloud notifies application of status events (connection, disconnect, etc.).
+    eventNotif_func appNotifCB;                             ///< (optional) Application notification callback: LQCloud notifies application of status events (connection, disconnect, etc.).
     ntwkStart_func networkStartCB;                          ///< (recommended) Application method to start the network and mqtt
     ntwkStop_func networkStopCB;                            ///< (recommended) Application method to stop the network and mqtt
     pwrStatus_func powerStatusCB;                           ///< (optional) Callback for LQCloud to get power status. 
