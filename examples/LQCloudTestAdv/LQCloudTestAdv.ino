@@ -125,8 +125,8 @@ Adafruit_FlashTransport_SPI flashTransport(EXTERNAL_FLASH_USE_CS, EXTERNAL_FLASH
 // #error No QSPI/SPI flash are defined on your board variant.h !
 // #endif
 Adafruit_SPIFlashBase flash(&flashTransport);
-lq_flashDictionary flashDictionary(&flash);
-lq_configPkgSrvc cnfgPkgSrvc("deviceservices-dev-pelogical.eastus.cloudapp.azure.com", 10100, &flashDictionary);
+lq_persistStructsSrvc pstructsSrvc(&flash);
+lq_provisioningSrvc provisionSrvc("deviceservices-dev-pelogical.eastus.cloudapp.azure.com", 10100, &pstructsSrvc);
 lqcDeviceConfig_t lqcDeviceConfigWr;
 lqcDeviceConfig_t lqcDeviceConfigRd = {0};
 
@@ -193,12 +193,12 @@ void setup() {
     }
     PRINTF(dbgColor__blue,"Flash chip JEDEC ID: %x\r", flash.getJEDECID());
 
-    /* Do a round-trip through flashDictionary for testing purposes */
-    // flashDictionary.eraseAll();                                                                     // erase FLASH
+    /* Do a round-trip through pstructsSrvc for testing purposes */
+    // pstructsSrvc.eraseAll();                                                                     // erase FLASH
     // lqcDeviceConfigWr = lqc_decomposeTokenSas(LQCLOUD_TOKEN);                                       // write config to FLASH
-    // fresult = flashDictionary.write(201, &lqcDeviceConfigWr, sizeof(lqcDeviceConfig_t), true);      // lqcDeviceConfigWr = lqc_decomposeTokenSas(LQCLOUD_TOKEN);
+    // fresult = pstructsSrvc.write(201, &lqcDeviceConfigWr, sizeof(lqcDeviceConfig_t), true);      // lqcDeviceConfigWr = lqc_decomposeTokenSas(LQCLOUD_TOKEN);
 
-    fresult = flashDictionary.readByKey(201, &lqcDeviceConfigRd, sizeof(lqcDeviceConfig_t));        // read config from FLASH
+    fresult = pstructsSrvc.readByKey(201, &lqcDeviceConfigRd, sizeof(lqcDeviceConfig_t));        // read config from FLASH
     char lqcToken[180];
     lqc_composeTokenSas(lqcToken, sizeof(lqcToken), lqcDeviceConfigRd.hostUri, lqcDeviceConfigRd.deviceId, lqcDeviceConfigRd.tokenSigExpiry);
 

@@ -30,21 +30,25 @@ lqcDeviceConfig_t lqc_decomposeTokenSas(const char* tokenSas)
     lqcDeviceConfig_t dvcCnfg = {0};
     char *start = (char *)tokenSas + 25;
     char *end = NULL;
+    bool valid = true;
 
     dvcCnfg.magicFlag = LOOUQ_MAGIC;
     dvcCnfg.pageKey = LOOUQ_FLASHDICTKEY__LQCDEVICE;
 
     end = strstr(start, "%2Fdevices");
-    memcpy(dvcCnfg.hostUri, start, end - start);
+    if (end != NULL)
+    {
+        memcpy(dvcCnfg.hostUri, start, end - start);
 
-    start = end + 13;
-    end = strstr(start, "&sig=");
-    memcpy(dvcCnfg.deviceId, start, end - start);
+        start = end + 13;
+        end = strstr(start, "&sig=");
+        if (end != NULL)
+            memcpy(dvcCnfg.deviceId, start, end - start);
 
-    start = end + 1;
-    end = start + strlen(start);
-    memcpy(dvcCnfg.tokenSigExpiry, start, end - start);
-
+        start = end + 1;
+        end = start + strlen(start);
+        memcpy(dvcCnfg.tokenSigExpiry, start, end - start);
+    }
     return dvcCnfg;
 }
 
