@@ -80,7 +80,7 @@
 */
 
 // put your LQCloud SASToken here (yep, this one is expired)
-#define LQCLOUD_TOKEN "SharedAccessSignature sr=iothub-dev-pelogical.azure-devices.net%2Fdevices%2F867198053225169&sig=1iP6gpTw5%2BlsMGpWB%2BCUwY%2FWSLdGxYD0%2FlywxE5Yu5Y%3D&se=1631966544"
+#define LQCLOUD_TOKEN "SharedAccessSignature sr=iothub-a-prod-loouq.azure-devices.net%2Fdevices%2F867198053226845&sig=Zu%2BdSKE58TlfIuCixDpmUzQgzKe89zxxaTq%2BxUClDrk%3D&se=1692341131"
 // organization key used to validate configuration and binary files and C2D (cloud-to-device) action commands
 const char *orgKey = "B89B3C5768B4280E2CE49336FD4EC752DE43BE14E153A6523AD0D71AAC83B4DC";
 
@@ -114,7 +114,7 @@ char mqttMessage[200];                      // application buffer to craft TX MQ
 #include <SPI.h>                        
 #include <Adafruit_SPIFlashBase.h>          // Adafruit SPI Flash extensions
 #include <lq-persistStructs.h>              // LooUQ flash struct persistence
-#include <lq-provisioning.h>                // Support for over-the-air update 
+// #include <lq-provisioning.h>                // Support for over-the-air update 
 
 Adafruit_FlashTransport_SPI flashTransport(EXTERNAL_FLASH_USE_CS, EXTERNAL_FLASH_USE_SPI);
 // #if defined(EXTERNAL_FLASH_USE_QSPI)
@@ -126,7 +126,7 @@ Adafruit_FlashTransport_SPI flashTransport(EXTERNAL_FLASH_USE_CS, EXTERNAL_FLASH
 // #endif
 Adafruit_SPIFlashBase flash(&flashTransport);
 lq_persistStructsSrvc pstructsSrvc(&flash);
-lq_provisioningSrvc provisionSrvc("deviceservices-dev-pelogical.eastus.cloudapp.azure.com", 10100, &pstructsSrvc);
+// lq_provisioningSrvc provisionSrvc("deviceservices-dev-pelogical.eastus.cloudapp.azure.com", 10100, &pstructsSrvc);
 lqcDeviceConfig_t lqcDeviceConfigWr;
 lqcDeviceConfig_t lqcDeviceConfigRd = {0};
 
@@ -193,9 +193,9 @@ void setup() {
     }
     PRINTF(dbgColor__blue,"Flash chip JEDEC ID: %x\r", flash.getJEDECID());
 
-    /* Do a round-trip through pstructsSrvc for testing purposes */
+    // /* Do a round-trip through pstructsSrvc for testing purposes */
     // pstructsSrvc.eraseAll();                                                                     // erase FLASH
-    // lqcDeviceConfigWr = lqc_decomposeTokenSas(LQCLOUD_TOKEN);                                       // write config to FLASH
+    // lqcDeviceConfigWr = lqc_decomposeTokenSas(LQCLOUD_TOKEN);                                    // write config to FLASH
     // fresult = pstructsSrvc.write(201, &lqcDeviceConfigWr, sizeof(lqcDeviceConfig_t), true);      // lqcDeviceConfigWr = lqc_decomposeTokenSas(LQCLOUD_TOKEN);
 
     fresult = pstructsSrvc.readByKey(201, &lqcDeviceConfigRd, sizeof(lqcDeviceConfig_t));        // read config from FLASH
@@ -346,24 +346,27 @@ bool networkStart(bool reset)
     {
         uint8_t connAttempts = 0;
         PRINTF(dbgColor__white, "\rNetwork type is %s on %s", networkOp.ntwkMode, networkOp.operName);
-
         do 
         {
-            uint8_t apnCount = ntwk_getActivePdpCntxtCnt();         // populates network APN table in LTEm1c, SUCCESS == network communications established.
+            uint8_t apnCount = ntwk_fetchActivePdpCntxts();         // populates network APN table in LTEm1c, SUCCESS == network communications established.
             if (apnCount == 0)
             {
                 /* Activating PDP context is network carrier dependent: NOT REQUIRED on most carrier networks
                 *  If apnCount > 0, assume "data" context is available. Can test with ntwk_getContext(context_ID) != NULL.
                 *  If not required, ntwk_activateContext() stills "warms up" the connection 
                 */
-                if (ntwk_activatePdpContext(DEFAULT_NETWORK_CONTEXT))  // Verizon IP data on ContextId = 1
+                if (ntwk_activatePdpContext(DEFAULT_NETWORK_CONTEXT, pdpCntxtProtocolType_IPV4, ""))  // Verizon IP data on ContextId = 1
                     apnCount++;
             }
             if (apnCount > 0)
             {
-                pdpCntxt_t *pdpCntxt = ntwk_getPdpCntxt(DEFAULT_NETWORK_CONTEXT);
-                PRINTF(dbgColor__white, "\rPDP Context=1, IPaddr=%s\r", pdpCntxt->ipAddress);
-                return true;
+                pdpCntxt_t *pdpCntxt = ntwk_getPdpCntxtInfo(DEFAULT_NETWORK_CONTEXT);
+                if (pdpCntxt != NULL)
+                {
+                    PRINTF(dbgColor__white, "\rPDP Context=1, IPaddr=%s\r", pdpCntxt->ipAddress);
+                    return true;
+                }
+                return false;
             }
             PRINTF(dbgColor__white, ".");
             connAttempts++;
