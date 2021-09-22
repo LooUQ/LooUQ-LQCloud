@@ -155,7 +155,6 @@ void lqc_start(mqttCtrl_t *mqttCtrl, const char *tokenSas)
 
     while (!S_ntwkConnectionManager(true))
     {
-        PRINTF(dbgColor__white, ".");
         snprintf(connectionMsg, 80, "LQC Start Retry=%d", retries);
         LQC_notifyApp(lqNotifType_info, connectionMsg);
         pDelay(15000);
