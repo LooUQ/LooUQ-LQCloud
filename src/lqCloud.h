@@ -30,37 +30,47 @@
 #include <lq-types.h>           // LooUQ libraries LQCloud uses
 #include <lq-collections.h>
 #include <lq-wrkTime.h>
+// #include <lq-network.h>
 
 #include <ltemc.h>              // *** TODO remove these dependencies ***
 #include <ltemc-mqtt.h>         // ***
+#include <lqc-ntwk.h>
+//#include <lqc-proto.h>
+
 
 enum lqcloud_constants
 {
-    lqc__msg_nameSz = 41,
-    lqc__msg_summarySz = 81,
+    lqc__msg_nameSz = 40 + 1,
+    lqc__msg_summarySz = 80 + 1,
     lqc__msg_overheadSz = 12,
     lqc__msg_bodySz = (mqtt__messageSz - lqc__msg_summarySz - lqc__msg_overheadSz),   // mqtt__messageSz from ltemc-mqtt.h
 
     lqc__defaults_recoveryWaitSecs = 120,
+    lqc__magicFlagSz = 4,
 
+    lqc__identity_packageIdSz = 4, 
     lqc__identity_deviceIdSz = 40,
     lqc__identity_deviceLabelSz = 12,
     lqc__identity_userIdSz = 110,
-    lqc__identity_hostUriSz = 50,
-    lqc__identity_tokenSasSz = 180,
-    lqc__identity_tokenSigExpirySz = 80,
-    lqc__identity_organizationKeySz = 12,
+    lqc__identity_hostUrlSz = 50,
+    lqc__identity_sasTokenSz = 180,
+    lqc__identity_signatureSz = 80,
+    lqc__identity_deviceKeySz = 16,
 
-    lqc__network_typeSz = 20,                               ///< name\brief description of ntwk type\technology
-    lqc__network_nameSz = 20,                               ///< name of network carrier
+    lqc__network_typeSz = 20,                               /// name@brief description of ntwk type\technology
+    lqc__network_nameSz = 20,                               /// name of network carrier
 
     lqc__connection_hostPort = 8883,
-    lqc__connection_onDemand_connDurationSecs = 120,        ///< period in seconds an on-demand connection stays open 
-    lqc__connection_required_retryIntrvlSecs = 10,          ///< period in millis between required connectivity connect attemps
+    lqc__connection_onDemand_connDurationSecs = 120,        /// period in seconds an on-demand connection stays open 
+    lqc__connection_continous_retryIntrvlSecs = 60,         /// period in seconds between connection attemps
+    LQC__connection_retryIntervalSecs = 60,
 
-    LQC__actionCnt = 12,                                    ///< number of application actions, change to needs (lower to save memory)
-    LQC__action_nameSz = 16,                                ///< Max length of an action name
-    LQC__action_paramsListSz = 40                           ///< Max length of an action parameter list, LQ Cloud registered parameter names/types
+    LQC__send_resetAtConsecutiveFailures = 2,
+
+    LQC__actionCnt = 12,                                    /// number of application actions, change to needs (lower to save memory)
+    LQC__action_MsgIdSz =  37,                              /// size of message Id field (incl NULL)
+    LQC__action_nameSz = 17,                                /// Max length of an action name (incl NULL)
+    LQC__action_paramsListSz = 40                           /// Max length of an action parameter list, LQ Cloud registered parameter names/types
 };
 
 
@@ -70,10 +80,10 @@ enum lqcloud_constants
  * LQ Cloud ACTIONS
  * ============================================================================================= */
 
-//#define LQCACTN_PARAMS_CNT 4          ///< Max parameters in application action, change to increase/decrease
-// #define LQCACTN_CNT 12                  ///< number of application actions, change to needs (lower to save memory)
-// #define LQCACTN_NAME_SZ 16              ///< Max length of an action name
-// #define LQCACTN_PARAMLIST_SZ 40         ///< Max length of an action parameter list, LQ Cloud registered parameter names/types
+//#define LQCACTN_PARAMS_CNT 4          /// Max parameters in application action, change to increase/decrease
+// #define LQCACTN_CNT 12                  /// number of application actions, change to needs (lower to save memory)
+// #define LQCACTN_NAME_SZ 16              /// Max length of an action name
+// #define LQCACTN_PARAMLIST_SZ 40         /// Max length of an action parameter list, LQ Cloud registered parameter names/types
 
 /* To be called in application space for each action to make accessible via LooUQ Cloud
 */
@@ -128,7 +138,7 @@ enum lqcloud_constants
 
 
 // /** 
-//  *  \brief Struct exposing action's parameters collection (names and values as c-strings).
+//  *  @brief Struct exposing action's parameters collection (names and values as c-strings).
 //  * 
 //  *  NOTE: This struct maps key\value pairs in an existing HTTP query string formated char array. The array is parsed
 //  *  using the lqc_parseQueryStringDict() function. Parsing MUTATES the original char array. The original char array
@@ -137,28 +147,50 @@ enum lqcloud_constants
 // */
 // typedef struct keyValueDict_tag
 // {
-//     uint8_t count;                 ///< During parsing, how many properties (name/value pairs) were found.
-//     char *names[KEYVALUE_DICT_SZ];   ///< Array of property names.
-//     char *values[KEYVALUE_DICT_SZ];  ///< Array of property values (as c-strings). Application is responsible for any type conversion.
+//     uint8_t count;                 /// During parsing, how many properties (name/value pairs) were found.
+//     char *names[KEYVALUE_DICT_SZ];   /// Array of property names.
+//     char *values[KEYVALUE_DICT_SZ];  /// Array of property values (as c-strings). Application is responsible for any type conversion.
 // } keyValueDict_t;
 
 #pragma endregion
-
-
 
 // use __attribute__((__packed__)) on instances for no padding
 
 typedef struct lqcDeviceConfig_tag 
 {
-    magicFlag_t magicFlag;
-    fdictKey_t pageKey;
-    char deviceLabel[lqc__identity_deviceLabelSz + 1];
-    char deviceId[lqc__identity_deviceIdSz + 1];
-    char hostUri[lqc__identity_hostUriSz + 1];
-    char tokenSigExpiry[lqc__identity_tokenSigExpirySz + 1];
+    char magicFlag[SET_PROPLEN(lqc__magicFlagSz)];
+    char packageId[SET_PROPLEN(lqc__identity_packageIdSz)];
+    char deviceLabel[SET_PROPLEN(lqc__identity_deviceLabelSz)];         // the short name of the device, not globally unique (org unique suggested)
+    char deviceId[SET_PROPLEN(lqc__identity_deviceIdSz)];               // the LQCloud unique identifier for the device, this is registered with the cloud to get credentials
+                                                                        // typically this is IMEA or MAC address of the device
+    char hostUrl[SET_PROPLEN(lqc__identity_hostUrlSz)];                 // full URI of the LQCloud access host 
+    uint16_t hostPort;
+    char signature[SET_PROPLEN(lqc__identity_signatureSz)];   // security token assigned by LQCloud for the deviceID (includes expiry timestamp)
+    // char validationKey[SET_PROPLEN(lqc__identity_validationKeySz)];
 } lqcDeviceConfig_t;
 
-//"iothub-dev-pelogical.azure-devices.net
+
+/* function definition for LQCloud to get a device configuration from the user application
+ * --------------------------------------------------------------------------------------------- */
+typedef lqcDeviceConfig_t *(*lqcStartNetwork_func)(bool invokedFromLQC);      /// application event notification and action/info request callback
+
+typedef resultCode_t (*lqcSendMessage_func)(const char *topic, const char* message, uint8_t timeoutSec);
+
+
+typedef enum lqcDeviceType_tag
+{
+    lqcDeviceType_sensor,
+    lqcDeviceType_ctrllr
+} lqcDeviceType_t;
+
+
+typedef enum lqcDeviceState_tag
+{
+    lqcDeviceState_offline = 0,
+    lqcDeviceState_online = 1,
+    lqcDeviceState_running = 2
+} lqcDeviceState_t;
+
 
 typedef enum lqcEventClass_tag
 {
@@ -182,40 +214,153 @@ typedef enum networkType_tag
 } networkType_t;
 
 
-typedef enum lqcConnectode_tag
+typedef enum lqcMessagingProto_tag
 {
-    lqcConnectMode_onDemand = 0,           ///< device stays offline most of the time and connects to send or at prescribed intervals 
-    lqcConnectMode_continuous = 1,         ///< device is connected all of the time, but will not block local processing if offline
-    lqcConnectMode_required = 2            ///< device is connected all of the time and blocks local processing while disconnected
-} lqcConnectMode_t;
+    lqcMessagingProto_mqtt = 1,
+    lqcMessagingProto_http,
+    lqcMessagingProto_coap
+} lqcMessagingProto_t;
 
 
-typedef enum lqcConnectState_tag
+typedef enum lqcSendQoS_tag
 {
-    lqcConnectState_closed = 0,
-    lqcConnectState_opened = 1,
-    lqcConnectState_connected = 2,
-    lqcConnectState_ready = 3,                                              ///< connected and subscribed
-    lqcConnectState_sendFault = 201,
-    lqcConnectState_connFault = 202
+    lqcSendQoS_bestEffort = 0,
+    lqcSendQoS_required,
+    lqcSendQoS_acknowledged
+} lqcSendQoS_t;
+
+
+// typedef enum lqcConnect_tag
+// {
+//     lqcConnect_mqttDetached = 0,            /// device is send only using HTTP and not connected to LQCloud
+//     lqcConnect_mqttOnDemand = 1,            /// device stays offline most of the time and connects to send or at prescribed intervals 
+//     lqcConnect_mqttContinuous = 2,          /// device is connected all of the time, but will not block local processing if offline
+//     lqcConnect_httpSensor = 3,
+//     lqcConnect__invalid
+// } lqcConnect_t;
+
+
+typedef enum lqcConnectState_tag                
+{
+    lqcConnectState_idleClosed = 0,
+
+    lqcConnectState_providerReady,
+    lqcConnectState_networkReady,
+
+    lqcConnectState_messagingOpen = 10,
+    lqcConnectState_messagingConnected,
+    lqcConnectState_messagingReady,             /// connected and SUBSCRIBED to receive topics
+
+    lqcConnectState_sendFault = 254,
+    lqcConnectState_connFault = 255
 } lqcConnectState_t;
 
 
-typedef void (*eventNotif_func)(uint8_t notifType, uint8_t notifAssm, uint8_t notifInst, const char *notifMsg);    ///< (optional) app notification callback, notifyType casts to notificationType
+// typedef enum lqcSendResult_tag
+// {
+//     lqcSendResult_sent = 0,
+//     lqcSendResult_queued = 1,
+//     lqcSendResult_dropped = 2
+// } lqcSendResult_t;
 
-typedef uint16_t (*pwrStatus_func)();                                       ///< (optional) callback into appl to determine power status, true if power is good
-typedef uint16_t (*battStatus_func)();                                      ///< (optional) callback into appl to determine battery status
-typedef uint32_t (*memStatus_func)();                                       ///< (optional) callback into appl to determine memory available (between stack and heap)
-typedef int16_t (*ntwkSignal_func)();                                       ///< (optional) callback into appl to determine network signal strength
+// typedef struct lqcSendResult_tag
+// {
+//     uint16_t msgId;
+//     bool sent;
+//     bool queued;
+// } lqcSendResult_t;
 
-typedef bool (*ntwkStart_func)(bool reset);                                 ///< callback into appl to wake communications hardware, returns true if HW was made ready
-typedef void (*ntwkStop_func)();                                            ///< callback into appl to sleep or fully discconnect communications hardware
+
+typedef enum lqcSendResult_tag
+{
+    lqcSendResult_sent = 1,
+    lqcSendResult_queued,
+    lqcSendResult_dropped
+} lqcSendResult_t;
+
+
+typedef enum lqcQOS_tag
+{
+    lqcQOS_basic = 0,
+    lqcQOS_important
+} lqcQOS_t;
+
+
+// typedef struct lqcConnectInfo_tag
+// {
+//     lqcMessagingProto_t msgProto;
+//     lqcConnect_t connectMode;
+//     lqcConnectState_t state;
+//     uint32_t stateEnteredAt;
+// } lqcConnectInfo_t;
+
+
+// typedef struct lqcOdConnectInfo_tag
+// {
+//     uint32_t odc_interConnectTicks;
+//     uint32_t odc_holdConnectTicks;
+//     uint32_t odc_connectAt;
+//     uint32_t odc_disconnectAt;
+// } lqcOdConnectInfo_t;
+
+
+// typedef struct lqcSensor_tag
+// {
+//     int id;
+//     uint32_t sampleLastAt;                  /// last sample taken instance (milli count)
+//     uint32_t samplePeriod;                  /// the planned interval between samples
+//     uint16_t sampleCount;                   /// the number of invokes for the sampleCallback, cleared with each alert/report
+//     void *sampleCallback;                   /// user defined function to perform sample acquisition and report formatting
+
+//     uint32_t rptLastAt;                     /// last reporting instance (milli count)
+//     uint32_t rptPeriod;                     /// the planned interval between device to LQCloud sensor samples reporting
+//     char *rptBuffer;                        /// character buffer to store sample event output
+//     uint16_t rptBufferSz;                   /// buffer size in characters, includes the intended /0 char string terminating symbol
+//     uint32_t alertAt;                       /// source millis cnt at event sourcing
+// } lqcSensor_t;
+
+
+/*  LQCloud/device time syncronization; at each LQCloud interaction cloud will send new epochRef (Unix time of cloud)
+ *  Device will record this value along with the current millis count. This information is sent to cloud with 
+ *  (epochRef and elapsed, where elapsed = now (millis) - epochAt) alert/report connection to allow LQCloud to correlate
+ *  device information at a specific date/time.
+ * 
+ *  Timing derived from millisecond counter, such as Arduini millis(); max at 49.7 days 
+ */
+typedef struct lqcEpoch_tag
+{
+    char epochRef[12];                      /// unix epoch reported at last alert/report interaction with LQCloud
+    uint32_t epochAt;                       /// millis counter at the last alert/report interaction with LQCloud
+} lqcEpoch_t;
+
+
+// /*  Application Callbacks
+//  ------------------------------------------------------------------------------------------------------------------- */
+// /* UNR - Application unsolicited notification and request callback (UNR)
+//  * Callback to application from LQCloud to notify it of significant events (ex: cloud connected) or request action/information from the app
+//  * All returns are const char* to static application values (LQCloud safely checks for null pointer).
+// */
+// //typedef const char* (*unr_func)(uint8_t unrCode, const char *unrOrigin, const char *unrMessage);        /// application unsolicited notification and request callback (UNR)
+
+// typedef appRqstResult_t (*appRqst_func)(uint8_t rqstCode, const char *origin, const char *message);
+// typedef void (*appNotf_func)(uint8_t notfCode, const char *origin, const char *message);
+// /*
+//  */
+// typedef void (*yield_func)();                                                                           /// callback to allow for app background processingfor extended duration operations to allow for 
 
 
 /** 
- *  \brief typedef of LQ Cloud application define device action function (required signature).
+ *  @brief typedef of LQ Cloud application function to perform an action invoked from LQCloud
+ *  The action needs to be defined with the below signature. LQCloud provides the xxxxx function to easily
+ *  parse the params to key/value dictionary and the xxxxx function to retrieve them (as strings).
 */
-typedef void (*lqc_ActnFunc_t)(keyValueDict_t params);
+typedef void (*lqcAction_func)(keyValueDict_t params);
+
+/**
+ * @brief Data received from LQCloud
+ * 
+ */
+//typedef void (*lqcRecvMsg_func)(const char *topic, char *message, uint16_t messageSz);
 
 
 #ifdef __cplusplus
@@ -224,36 +369,37 @@ extern "C"
 #endif
 
 
-void lqc_create(const char *organizationKey,
-                const char *deviceLabel,
-                eventNotif_func eventNotifyCB, 
-                ntwkStart_func ntwkStartCB,
-                ntwkStop_func ntwkStopCB,
-                pwrStatus_func pwrStatCB, 
-                battStatus_func battStatCB, 
-                memStatus_func memoryStatCB);
+/* Legacy LQCloud
+*/
+// void lqc_create(void *protoCtrl, lqcStartNetwork_func startNetworkCB, appEventCallback_func appEventCB, yield_func yieldCB, char *validationKey);
+void lqc_create(lqcDeviceType_t deviceType, lqcDeviceConfig_t *deviceConfig, lqcSendMessage_func sendMessageCB, applEvntNotify_func applEvntNotifyCB, applInfoRequest_func applInfoRequestCB, yield_func yieldCB, char *validationKey);
 
-void lqc_configTelemetryCallbacks(pwrStatus_func pwrStatFunc, battStatus_func battStatFunc, memStatus_func memStatFunc);
 void lqc_setDeviceLabel(const char *label);
+void lqc_setDeviceKey(const char *key);
+void lqc_enableDiagnostics(diagnosticInfo_t *diagnosticsInfoBlock);
 
-void lqc_start(mqttCtrl_t *mqttCtrl, const char *sasToken);
-void lqc_setConnectMode(lqcConnectMode_t connMode, wrkTime_t *schedObj);
-lqcConnectMode_t lqc_getConnectMode();
-lqcConnectState_t lqc_getConnectState(const char *hostName);
+void lqc_start(uint8_t resetCause);
 
+bool lqc_isOnline();
+
+void lqc_receiveMsg(char *message, uint16_t messageSz, const char *props);
+void lqc_setEventResponse(uint8_t requestEvent, uint16_t result, const char *response);
 void lqc_doWork();
-void lqc_eventNotifCallback(uint8_t notifType, uint8_t notifAssm, uint8_t notifInst, const char *notifMsg);
 
-bool lqc_sendTelemetry(const char *evntName, const char *evntSummary, const char *bodyJson);
-bool lqc_sendAlert(const char *alrtName, const char *alrtSummary, const char *bodyJson);
+lqcSendResult_t lqc_sendTelemetry(const char *evntName, const char *evntSummary, const char *bodyJson);
+lqcSendResult_t lqc_sendAlert(const char *alrtName, const char *alrtSummary, const char *bodyJson);
 
-void lqc_diagnosticsCheck(diagnosticInfo_t *diagInfo);
+lqcSendResult_t lqc_diagnosticsCheck(diagnosticInfo_t *diagInfo);
 
-bool lqc_regApplAction(const char *actnName, lqc_ActnFunc_t applActn_func_t, const char *paramList);
+bool lqc_registerApplicationAction(const char *actnName, lqcAction_func applActionCB, const char *paramList);
+
+void LQC_sendActionResponse(uint16_t resultCode, lqcEventClass_t eventClass, const char *bodyJson);
+
 void lqc_sendActionResponse(uint16_t resultCode, const char *bodyJson);
 
 char *lqc_getDeviceId();
 char *lqc_getDeviceLabel();
+uint8_t lqc_getProtoState();
 
 wrkTime_t wrkTime_create(millisDuration_t intervalMillis);
 void wrkTime_start(wrkTime_t *schedObj);
@@ -262,8 +408,15 @@ bool wrkTime_isRunning(wrkTime_t *schedObj);
 bool wrkTime_doNow(wrkTime_t *schedObj);
 bool wrkTime_isElapsed(millisTime_t timerVal, millisDuration_t duration);
 
-void lqc_composeTokenSas(char *sasToken, uint8_t sasSz, const char* hostUri, const char *deviceId, const char* sigExpiry);
-lqcDeviceConfig_t lqc_decomposeTokenSas(const char* sasToken);
+void lqc_composeIothUserId(char *userId, uint8_t uidSz, const char* hostUrl, const char *deviceId);
+void lqc_composeIothSasToken(char *sasToken, uint8_t sasSz, const char* hostUrl, const char *deviceId, const char* signature);
+void lqc_setDeviceConfigFromSASToken(const char* sasToken, lqcDeviceConfig_t *deviceConfig);
+
+/** 
+ *  \brief Register a callback to change communications device power profile. Enter/exit sleep/PSM/eDRX/etc.
+ *  \param [in] powerSaveCB Enum specifying the LTE LPWAN protocol(s) to scan; 0=LTE M1,1=LTE NB1,2=LTE M1 and NB1
+ */
+void lqc_registerPowerSaveCallback(powerSaveCallback_func powerSaveCB);
 
 
 // const char *lqc_parseSasTokenForDeviceId(const char* sasToken);
@@ -272,6 +425,17 @@ lqcDeviceConfig_t lqc_decomposeTokenSas(const char* sasToken);
 
 // // helpers
 //void sendLqDiagnostics(const char *deviceName, lqDiagInfo_t *diagInfo);
+
+
+uint8_t lqcProto_send(uint8_t instId, const char *header, const char *body, lqcQOS_t qos, uint8_t timeoutSeconds);
+
+/*
+ ------------------------------------------------------------------------------------------------- */
+
+uint8_t lqcProto_connect(uint8_t instId, const char* host, const char *id, const char* secToken);
+uint8_t lqcProto_disconnect(uint8_t instId);
+
+uint8_t lqcProto_readState(uint8_t instId);
 
 
 #ifdef __cplusplus

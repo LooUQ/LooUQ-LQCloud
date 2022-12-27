@@ -1,54 +1,60 @@
 
+#define SRCFILE "AZR"                           // create SRCFILE (3 char) MACRO for lq-diagnostics ASSERT
 #include "lqc-internal.h"
 #include "lqc-azure.h"
 
 
-void lqc_composeTokenSas(char *tokenSAS, uint8_t sasSz, const char* hostUri, const char *deviceId, const char* sigExpiry)
+void lqc_composeIothUserId(char *userId, uint8_t uidSz, const char* hostUrl, const char *deviceId)
 {
-    ASSERT(strlen(hostUri) + strlen(deviceId) + strlen(sigExpiry) + 40 < sasSz, srcfile_azure_c);
-        
-    /* Azure SAS Token Template
-    * %s = host URI
-    * %s = device ID
-    * %s = signature (and expiry)
-    "SharedAccessSignature sr=%s%2Fdevices%2F%s&sig=%s"      // cannot use snprintf because of escaped chars in template */
+    // "<hostUrl>/<deviceId>/?api-version=2021-04-12"
+    ASSERT(strlen(hostUrl) + strlen(deviceId) + 25 < uidSz);
 
-    strcpy(tokenSAS, "SharedAccessSignature sr=");
-    strcat(tokenSAS, hostUri);
-    strcat(tokenSAS, "%2Fdevices%2F");
-    strcat(tokenSAS, deviceId);
-    strcat(tokenSAS, "&");
-    strcat(tokenSAS, sigExpiry);
+    strcpy(userId, hostUrl);
+    strcat(userId, "/");
+    strcat(userId, deviceId);
+    strcat(userId, "/?api-version=2021-04-12");
 }
 
 
-lqcDeviceConfig_t lqc_decomposeTokenSas(const char* tokenSas)
+void lqc_composeIothSasToken(char *sasToken, uint8_t sasSz, const char* hostUrl, const char *deviceId, const char* signature)
 {
-    ASSERT(strncmp(tokenSas, "SharedAccessSignature ", 22) == 0, srcfile_azure_c);
-    ASSERT(tokenSas[22] == 's' && tokenSas[24] == '=' && strlen(tokenSas) < 180, srcfile_azure_c);
+    // "SharedAccessSignature sr=<hostUrl>%2Fdevices%2F<deviceId>&sig=<signature+expiry>"
+    ASSERT(strlen(hostUrl) + strlen(deviceId) + strlen(signature) + 40 < sasSz);
+        
+    strcpy(sasToken, "SharedAccessSignature sr=");
+    strcat(sasToken, hostUrl);
+    strcat(sasToken, "%2Fdevices%2F");
+    strcat(sasToken, deviceId);
+    strcat(sasToken, "&");
+    strcat(sasToken, signature);
+}
 
-    lqcDeviceConfig_t dvcCnfg = {0};
-    char *start = (char *)tokenSas + 25;
-    char *end = NULL;
-    bool valid = true;
 
-    dvcCnfg.magicFlag = LOOUQ_MAGIC;
-    dvcCnfg.pageKey = LOOUQ_FLASHDICTKEY__LQCDEVICE;
+void lqc_setDeviceConfigFromSASToken(const char* sasToken, lqcDeviceConfig_t * deviceConfig)
+{
+    ASSERT(strncmp(sasToken, "SharedAccessSignature ", 22) == 0);
+    ASSERT(sasToken[22] == 's' && sasToken[24] == '=' && strlen(sasToken) < 180);
 
-    end = strstr(start, "%2Fdevices");
+    char *start = (char *)sasToken + 25;
+    char *end = strstr(start, "%2Fdevices");
     if (end != NULL)
     {
-        memcpy(dvcCnfg.hostUri, start, end - start);
+        memcpy(deviceConfig->hostUrl, start, end - start);
 
         start = end + 13;
         end = strstr(start, "&sig=");
         if (end != NULL)
-            memcpy(dvcCnfg.deviceId, start, end - start);
+        {
+            memcpy(deviceConfig->deviceId, start, end - start);
 
-        start = end + 1;
-        end = start + strlen(start);
-        memcpy(dvcCnfg.tokenSigExpiry, start, end - start);
+            start = end + 1;
+            end = start + strlen(start);
+            memcpy(deviceConfig->signature, start, end - start);
+
+            memcpy(deviceConfig->magicFlag, LQC_PROVISIONING_MAGICFLAG, strlen(LQC_PROVISIONING_MAGICFLAG));
+            memcpy(deviceConfig->packageId, LQC_DEVICECONFIG_PACKAGEID, strlen(LQC_DEVICECONFIG_PACKAGEID));
+            deviceConfig->hostPort = 8883;
+        }
     }
-    return dvcCnfg;
 }
 

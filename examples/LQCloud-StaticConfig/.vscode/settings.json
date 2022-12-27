@@ -9,6 +9,10 @@
         "lqc-azure.h": "c",
         "aes.h": "c",
         "ltemc-tls.h": "c",
-        "ltemc-mqtt.h": "c"
+        "ltemc-mqtt.h": "c",
+        "ltemc.h": "c",
+        "lq-platform.h": "c",
+        "lqplatform-pins.h": "c",
+        "lq-diagnostics.h": "c"
     }
 }

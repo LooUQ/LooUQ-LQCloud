@@ -67,19 +67,4 @@ static const char *IotHubTemplate_D2C_topicActionResponse = "devices/%s/messages
 
 #pragma endregion
 
-
-
-
-// #ifdef __cplusplus
-// extern "C"
-// {
-// #endif
-
-// void lqc_composeTokenSas(char *sasToken, uint8_t sasSz, const char* hostUri, const char *deviceId, const char* sigExpiry);
-// lqcDeviceConfig_t lqc_decomposeTokenSas(const char* sasToken);
-
-// #ifdef __cplusplus
-// }
-// #endif // !__cplusplus
-
 #endif  /* !__LQC_AZURE_H__ */

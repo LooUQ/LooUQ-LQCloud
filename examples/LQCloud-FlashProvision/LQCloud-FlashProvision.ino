@@ -1,9 +1,9 @@
 /******************************************************************************
- *  \file LQCloudTestAdv.ino
+ *  \file LQCloud-FlashProvision.ino
  *  \author Greg Terrell
  *  \license MIT License
  *
- *  Copyright (c) 2020, 2021 LooUQ Incorporated.
+ *  Copyright (c) 2020-2022 LooUQ Incorporated.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -58,10 +58,11 @@
 #include <ltemc-mqtt.h>
 
 #include <lqcloud.h>                    // add LQCloud
-#include <lq-wrkTime.h>                 // use the wrkTime scheduler
+#include <lq-wrkTime.h>                 // use the wrkTime schedule helper
 
 
-#define DEFAULT_NETWORK_CONTEXT 1
+#define DEFAULT_PDPCONTEXT 1
+#define DVC_LABEL "LOOUQ_DEV"
 
 
 /* This is a basic test\example to run with the LooUQ LQCloud platform. If you do not have a LQCloud subscription you can get a free 
@@ -78,11 +79,7 @@
  *
  * You will obtain a SAS Token like above from the LQCloud-Manage web application. Under devices, you can get a SAS token from the list or the device details page.
 */
-
-// put your LQCloud SASToken here (yep, this one is expired)
-#define LQCLOUD_TOKEN "SharedAccessSignature sr=iothub-a-prod-loouq.azure-devices.net%2Fdevices%2F867198053226845&sig=Zu%2BdSKE58TlfIuCixDpmUzQgzKe89zxxaTq%2BxUClDrk%3D&se=1692341131"
-// organization key used to validate configuration and binary files and C2D (cloud-to-device) action commands
-const char *orgKey = "B89B3C5768B4280E2CE49336FD4EC752DE43BE14E153A6523AD0D71AAC83B4DC";
+#include "dvcSettings.h"
 
 
 // test setup
@@ -150,7 +147,7 @@ uint8_t flashesRemaining;
  * Utilizing pre-process automatic string concatenation */
 // #define LQCACTN_PARAMTYPE_INT    "int"
 static const char *getStatus_params = "";
-static const char *setLedState_params =   "ledState" "=" LQCACTION_PARAM_INT();
+static const char *setLedState_params = "ledState" "=" LQCACTION_PARAM_INT();
 static const char *doFlashLed_params = { "flashCount" "=" LQCACTION_PARAM_INT() "&" "cycleMillis" "=" LQCACTION_PARAM_INT() };
 
 
@@ -166,8 +163,8 @@ void setup() {
         #endif
     #endif
 
-    PRINTF(dbgColor__red, "LooUQ Cloud - CloudTest\r");
-    lqDiag_registerNotifCallback(eventNotifCB);               // the LQ ASSERT\Diagnostics subsystem can report a fault back to app for local display (aka RED light)
+    PRINTF(dbgColor__red, "LooUQ Cloud - Service Provision\r");
+    lqDiag_registerEventCallback(eventNotifCB);               // the LQ ASSERT\Diagnostics subsystem can report a fault back to app for local display (aka RED light)
     lqDiag_setResetCause(lqSAMD_getResetCause());
     PRINTF(dbgColor__none, "RCause=%d\r", lqSAMD_getResetCause());
 
@@ -193,28 +190,46 @@ void setup() {
     }
     PRINTF(dbgColor__blue,"Flash chip JEDEC ID: %x\r", flash.getJEDECID());
 
-    // /* Do a round-trip through pstructsSrvc for testing purposes */
+    /* Do a round-trip through pstructsSrvc for testing purposes */
+    // put your LQCloud SASToken here (yep, this one is expired)
+    // #define LQCLOUD_TOKEN "SharedAccessSignature sr=iothub-a-prod-loouq.azure-devices.net%2Fdevices%2F867198053226845&sig=Zu%2BdSKE58TlfIuCixDpmUzQgzKe89zxxaTq%2BxUClDrk%3D&se=1692341131"
     // pstructsSrvc.eraseAll();                                                                     // erase FLASH
     // lqcDeviceConfigWr = lqc_decomposeTokenSas(LQCLOUD_TOKEN);                                    // write config to FLASH
     // fresult = pstructsSrvc.write(201, &lqcDeviceConfigWr, sizeof(lqcDeviceConfig_t), true);      // lqcDeviceConfigWr = lqc_decomposeTokenSas(LQCLOUD_TOKEN);
 
-    fresult = pstructsSrvc.readByKey(201, &lqcDeviceConfigRd, sizeof(lqcDeviceConfig_t));        // read config from FLASH
+    fresult = pstructsSrvc.readByKey(201, &lqcDeviceConfigRd, sizeof(lqcDeviceConfig_t));           // read config from FLASH
     char lqcToken[180];
-    lqc_composeTokenSas(lqcToken, sizeof(lqcToken), lqcDeviceConfigRd.hostUri, lqcDeviceConfigRd.deviceId, lqcDeviceConfigRd.tokenSigExpiry);
+    lqc_composeSASToken(lqcToken, sizeof(lqcToken), lqcDeviceConfigRd.hostUri, lqcDeviceConfigRd.deviceId, lqcDeviceConfigRd.tokenSigExpiry);
 
     // device application setup and initialization
-    pinMode(buttonPin, INPUT);                              // feather uses pin=9 for battery voltage divider, floats at ~2v
+    pinMode(buttonPin, INPUT);                                              // feather uses pin=9 for battery voltage divider, floats at ~2v
     pinMode(ledPin, OUTPUT);
-    digitalWrite(ledPin, HIGH);                             // LED off
+    digitalWrite(ledPin, HIGH);                                             // LED off
 
-    ltem_create(ltem_pinConfig, eventNotifCB);              // create modem\transport reference and wire-up device event callbacks
-    ltem_setYieldCallback(resetWatchdog);
-    ltem_start();
-    PRINTF(dbgColor__none, "BGx %s\r", lqDiag_setHwVersion(mdminfo_ltem().fwver));
+    ltem_create(ltem_pinConfig, resetWatchdog, eventNotifCB);               // create modem\transport reference and wire-up device event callbacks
+    ltem_start((resetAction_t)resetAlways);                                 // start modem, reset if running
+    PRINTF(dbgColor__none, "BGx %s\r", lqDiag_setHwVersion(mdminfo_ltem()->fwver));
+
+
+    /* Define settings for the MQTT (over TLS) connection to LQCloud, TLS v1.2 and MQTT v3.11 required 
+     * Even though LQCloud will manage receives, the receive buffer has to be defined and provided based on
+     * your application's needs. You can start larger, then use mqtt_getLastBufferReqd(mqttCtrl_t *mqttCtrl)
+     * to see if you can reduce buffer size */
+    tls_configure(socket_0, tlsVersion_tls12, tlsCipher_any, tlsCertExpiration_default, tlsSecurityLevel_default);
+    mqtt_initControl(&mqttCtrl, socket_0,  receiveBuffer, sizeof(receiveBuffer), NULL);
+
+    const char *hostUrl = "";
+    uint16_t hostPort = 8883;
+
+    mqtt_setConnection(&mqttCtrl, hostUrl, hostPort, mqtt__useTls, mqttVersion_311, lqcDeviceConfigRd.deviceId, LQCLOUD_USER, LQCLOUD_SASSIG);
+
+
+
 
     /* Add LQCloud to project and register local service callbacks.
      * ----------------------------------------------------------------------------------------- */
-    lqc_create(orgKey, "LQC-DEV", eventNotifCB, networkStart, networkStop, NULL, getBatteryStatus, getFreeMemory);
+
+    lqc_create(lqcConnect_mqttContinuous, "LQC-DEV", lqcToken, eventNotifCB, resetWatchdog);
     /* Callbacks (param 3-8)
      * - cloudNotificationsHandler: cloud informs app of events
      * - networkStart: calls back to application to perform the steps required to start the network transport
@@ -224,24 +239,26 @@ void setup() {
      * - getFreeMemory: how much memory between stack and heap. Even without malloc, does the stack have room
     */
 
-    /* Define settings for the MQTT (over TLS) connection to LQCloud, TLS v1.2 and MQTT v3.11 required 
-     * Even though LQCloud will manage receives, the receive buffer has to be defined and provided based on
-     * your application's needs. You can start larger, then use mqtt_getLastBufferReqd(mqttCtrl_t *mqttCtrl)
-     * to see if you can reduce buffer size */
-    tls_configure(dataContext_0, tlsVersion_tls12, tlsCipher_any, tlsCertExpiration_default, tlsSecurityLevel_default);
-    mqtt_initControl(&mqttCtrl, dataContext_0, mqtt__useTls, mqttVersion_311, receiveBuffer, sizeof(receiveBuffer), NULL);
+    lqcDeviceConfig_t deviceCnfg;
+    // memcpy(deviceCnfg.deviceId, DVC_ID, sizeof(deviceCnfg.deviceId));
+    // memcpy(deviceCnfg.deviceLabel, DVC_LABEL, sizeof(deviceCnfg.deviceLabel));
+    // memcpy(deviceCnfg.hostUri, LQCLOUD_URL, sizeof(deviceCnfg.hostUri));
+    // deviceCnfg.magicFlag = 0;
+    // deviceCnfg.pageKey = 0;
+    // memcpy(deviceCnfg.tokenSigExpiry, LQCLOUD_SASSIG, sizeof(deviceCnfg.tokenSigExpiry));
 
-    lqc_start(&mqttCtrl, lqcToken);
+
+    lqc_start(&mqttCtrl, deviceCnfg);
     PRINTF(dbgColor__info, "Connected to LQ Cloud, Device started.\r");
 
-    lqc_diagnosticsCheck(lqDiag_getDiagnosticsInfo());                  // invoke diagnostics reporter to analyze device start conditions and optionally send diagnostics to cloud/host
+    lqc_diagnosticsCheck(lqDiag_getDiagnosticsInfo());                              // invoke diagnostics reporter to analyze device start conditions
+                                                                                    // ...and optionally send diagnostics to cloud/host
+    sendTelemetry_intvl = wrkTime_create(PERIOD_FROM_SECONDS(30));                  // this application sends telemetry continuously every 30 secs
+    alert_intvl = wrkTime_create(PERIOD_FROM_MINUTES(60));                          // and a periodic alert every 60 min
 
-    sendTelemetry_intvl = wrkTime_create(PERIOD_FROM_SECONDS(30));      // this application sends telemetry continuously every 30 secs
-    alert_intvl = wrkTime_create(PERIOD_FROM_MINUTES(60));              // and a periodic alert every 60 min
-
-    lqc_regApplAction("get-stat", &getStatus, getStatus_params);        // register application cloud-to-device commands (callbacks)
-    lqc_regApplAction("set-led", &setLedState, setLedState_params);
-    lqc_regApplAction("do-flashLed", &doFlashLed, doFlashLed_params);
+    lqc_registerApplicationAction("get-stat", &getStatus, getStatus_params);        // register application cloud-to-device commands (callbacks)
+    lqc_registerApplicationAction("set-led", &setLedState, setLedState_params);
+    lqc_registerApplicationAction("do-flashLed", &doFlashLed, doFlashLed_params);
 
     /* now enable watchdog as app transitions to loop()
      * setup has already registered yield callback with LTEm1c to handle longer running network actions */
@@ -280,7 +297,7 @@ void loop()
         bool thisSend = lqc_sendTelemetry("LQ CloudTest", summary, body);
 
         if (!thisSend && !lastSendSuccessful)
-             eventNotifCB(lqNotifType_hardFault, 0, 0, "Successive send errors");
+             eventNotifCB(appEvent_fault_hardFault, "Successive send errors");
         lastSendSuccessful = thisSend;
         loopCnt++;
     }
@@ -335,35 +352,35 @@ void resetWatchdog()
 bool networkStart(bool reset)
 {
     if (reset)
-        ltem_reset();
+        ltem_reset(true);
 
-    if (ltem_getReadyState() != qbg_readyState_appReady)
-        ltem_start();                                               // start modem processing
+    if (ltem_getDeviceState() != deviceState_appReady)
+        ltem_start((resetAction_t)resetAlways);                         // start modem processing
 
-    networkOperator_t networkOp = ntwk_awaitOperator(30000);
+    providerInfo_t *ntwkProvider = ntwk_awaitProvider(30000);
 
-    if (strlen(networkOp.operName) > 0)
+    if (strlen(ntwkProvider->name) > 0)
     {
         uint8_t connAttempts = 0;
-        PRINTF(dbgColor__white, "\rNetwork type is %s on %s", networkOp.ntwkMode, networkOp.operName);
+        PRINTF(dbgColor__white, "\rNetwork type is %s on %s", ntwkProvider->iotMode, ntwkProvider->name);
         do 
         {
-            uint8_t apnCount = ntwk_fetchActivePdpCntxts();         // populates network APN table in LTEm1c, SUCCESS == network communications established.
+            uint8_t apnCount = ntwk_getActiveNetworkCount();            // populates network APN table in LTEm1c, SUCCESS == network communications established.
             if (apnCount == 0)
             {
                 /* Activating PDP context is network carrier dependent: NOT REQUIRED on most carrier networks
                 *  If apnCount > 0, assume "data" context is available. Can test with ntwk_getContext(context_ID) != NULL.
                 *  If not required, ntwk_activateContext() stills "warms up" the connection 
                 */
-                if (ntwk_activatePdpContext(DEFAULT_NETWORK_CONTEXT, pdpCntxtProtocolType_IPV4, ""))  // Verizon IP data on ContextId = 1
+                if (ntwk_activateNetwork(DEFAULT_PDPCONTEXT, pdpProtocolType_IPV4, ""))  // Verizon IP data on ContextId = 1
                     apnCount++;
             }
             if (apnCount > 0)
             {
-                pdpCntxt_t *pdpCntxt = ntwk_getPdpCntxtInfo(DEFAULT_NETWORK_CONTEXT);
-                if (pdpCntxt != NULL)
+                networkInfo_t *pdpNtwk = ntwk_getNetworkInfo(DEFAULT_PDPCONTEXT);
+                if (pdpNtwk != NULL)
                 {
-                    PRINTF(dbgColor__white, "\rPDP Context=1, IPaddr=%s\r", pdpCntxt->ipAddress);
+                    PRINTF(dbgColor__white, "\rPDP Context=1, IPaddr=%s\r", pdpNtwk->ipAddress);
                     return true;
                 }
                 return false;
@@ -387,9 +404,9 @@ void networkStop()
 /* Application "other" Callbacks
 ========================================================================================================================= */
 
-void eventNotifCB(uint8_t notifType, uint8_t notifAssm, uint8_t notifInst, const char *notifMsg)
+void eventNotifCB(uint8_t notifType, const char *notifMsg)
 {
-    if (notifType >= lqNotifType__CATASTROPHIC)
+    if (notifType >= appEvent__FAULTS)
     {
         PRINTF(dbgColor__error, "LQCloud-HardFault: %s\r", notifMsg);
         // update local indicators like LEDs, OLED, etc.
@@ -412,7 +429,7 @@ void eventNotifCB(uint8_t notifType, uint8_t notifAssm, uint8_t notifInst, const
         while (true) {}                                                         // end of the road
     }
 
-    else if (notifType >= lqNotifType__WARNING)
+    else if (notifType >= appEvent__WARNINGS)
     {
         PRINTF(dbgColor__warn, "LQCloud-Warning: %s\r", notifMsg);
         // update local indicators like LEDs, OLED, etc.
@@ -423,7 +440,7 @@ void eventNotifCB(uint8_t notifType, uint8_t notifAssm, uint8_t notifInst, const
         #endif
     }
 
-    else if (notifType == lqNotifType_connect)
+    else if (notifType == appEvent_ntwk_connected)
     {
         PRINTF(dbgColor__info, "LQCloud Connected\r");
         #ifdef ENABLE_NEOPIXEL
@@ -433,7 +450,7 @@ void eventNotifCB(uint8_t notifType, uint8_t notifAssm, uint8_t notifInst, const
         return;
     }
 
-    else if (notifType == lqNotifType_disconnect)
+    else if (notifType == appEvent_ntwk_disconnected) 
     {
         PRINTF(dbgColor__warn, "LQCloud Disconnected\r");
         #ifdef ENABLE_NEOPIXEL

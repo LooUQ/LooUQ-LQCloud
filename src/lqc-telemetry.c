@@ -39,6 +39,7 @@
 #define PRINTF(c_, f_, ...) ;
 #endif
 
+#define SRCFILE "TEL"                           // create SRCFILE (3 char) MACRO for lq-diagnostics ASSERT
 #include "lqc-internal.h"
 #include "lqc-azure.h"
 
@@ -55,7 +56,7 @@ extern lqCloudDevice_t g_lqCloud;
  *  \param [in] eventValue - Summary string to include with the telemetry data body.
  *  \param [in] body - Message body, JSON formatted
  */
-bool lqc_sendTelemetry(const char *evntName, const char *evntSummary, const char *bodyJson)
+lqcSendResult_t lqc_sendTelemetry(const char *evntName, const char *evntSummary, const char *bodyJson)
 {
     char msgEvntName[lqc__msg_nameSz] = {0};
     char msgEvntSummary[lqc__msg_summarySz] = {0};
@@ -72,26 +73,29 @@ bool lqc_sendTelemetry(const char *evntName, const char *evntSummary, const char
     if (evntSummary[0] != '\0')
         snprintf(msgEvntSummary, sizeof(msgEvntSummary), "\"descr\": \"%s\",", evntSummary);
 
-    // telemetry options, report device status for only registered service functions
-    if (g_lqCloud.powerStatusCB)
+    // telemetry options
+
+    LQC_invokeAppEventCBRequest(appEvent_env_getPwr, "");
+    if (g_lqCloud.appEventResponse.requestCode == appEvent_env_getPwr && g_lqCloud.appEventResponse.resultCode == resultCode__success)
     {
         char optProp[LQC_DEVICESTATUS_PROPSZ];
-        uint16_t pwrStat = g_lqCloud.powerStatusCB();
-        snprintf(optProp, LQC_DEVICESTATUS_PROPSZ, "\"pwrmv\": %d,", pwrStat);
+        snprintf(optProp, LQC_DEVICESTATUS_PROPSZ, "\"pwrmv\": %s,", g_lqCloud.appEventResponse.message);
         strcat(dStatusBuild, optProp);
     }
-    if (g_lqCloud.batteryStatusCB)
+
+    LQC_invokeAppEventCBRequest(appEvent_env_getBatt, "");
+    if (g_lqCloud.appEventResponse.requestCode == appEvent_env_getBatt && g_lqCloud.appEventResponse.resultCode == resultCode__success)
     {
         char optProp[LQC_DEVICESTATUS_PROPSZ];
-        uint16_t battStat = g_lqCloud.batteryStatusCB();
-        snprintf(optProp, LQC_DEVICESTATUS_PROPSZ, "\"bttmv\":%d,", battStat);
+        snprintf(optProp, LQC_DEVICESTATUS_PROPSZ, "\"bttmv\":%s,", g_lqCloud.appEventResponse.message);
         strcat(dStatusBuild, optProp);
     }
-    if (g_lqCloud.memoryStatusCB)
+
+    LQC_invokeAppEventCBRequest(appEvent_env_getMem, "");
+    if (g_lqCloud.appEventResponse.requestCode == appEvent_env_getMem && g_lqCloud.appEventResponse.resultCode == resultCode__success)
     {
         char optProp[LQC_DEVICESTATUS_PROPSZ];
-        uint32_t memStat = g_lqCloud.memoryStatusCB();
-        snprintf(optProp, LQC_DEVICESTATUS_PROPSZ, "\"memb\":%d,", memStat);
+        snprintf(optProp, LQC_DEVICESTATUS_PROPSZ, "\"memb\":%s,", g_lqCloud.appEventResponse.message);
         strcat(dStatusBuild, optProp);
     }
     uint8_t dStatusSz = strlen(dStatusBuild);
@@ -101,10 +105,10 @@ bool lqc_sendTelemetry(const char *evntName, const char *evntSummary, const char
         snprintf(deviceStatus, DVCSTATUS_SZ, ",\"deviceStatus\":{%s}", dStatusBuild);
     }
 
-    
     // "devices/%s/messages/events/mId=~%d&mV=1.0&evT=tdat&evC=%s&evN=%s"
-    snprintf(msgTopic, LQMQ_TOPIC_PUB_MAXSZ, IotHubTemplate_D2C_topicTelemetry, g_lqCloud.deviceId, LQC_getMsgId(), "appl", msgEvntName);
+    snprintf(msgTopic, LQMQ_TOPIC_PUB_MAXSZ, IotHubTemplate_D2C_topicTelemetry, g_lqCloud.deviceCnfg->deviceId, ++g_lqCloud.lastMsgId, "appl", msgEvntName);
     snprintf(msgBody, LQMQ_MSG_MAXSZ, "{%s\"telemetry\": %s%s}", msgEvntSummary, bodyJson, deviceStatus);
-    return LQC_mqttTrySend(msgTopic, msgBody, false);
+
+    return LQC_trySend(msgTopic, msgBody, 0, false);
 }
 

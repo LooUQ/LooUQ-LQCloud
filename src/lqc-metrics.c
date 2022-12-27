@@ -1,9 +1,9 @@
 /******************************************************************************
- *  \file lqc-diagnostics.c
+ *  \file lqc-metrics.c
  *  \author Greg Terrell
  *  \license MIT License
  *
- *  Copyright (c) 2020, 2021 LooUQ Incorporated.
+ *  Copyright (c) 2020-2022 LooUQ Incorporated.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to
@@ -28,23 +28,23 @@
 
 #define FORCE_DIAG_SEND 0
 
+#define SRCFILE "MTR"                           // create SRCFILE (3 char) MACRO for lq-diagnostics ASSERT
 #include "lqc-internal.h"
-#include <lq-diagnostics.h>
 
 extern lqCloudDevice_t g_lqCloud;
 extern diagnosticControl_t g_diagControl;
 
 
-bool lqc_reportResetToCloud(uint8_t rcause)
-{
-    if (rcause != diagRcause_watchdog && rcause != diagRcause_system)           // if non-error reset, nothing to report
-    {
-        lqc_reportMetrics();
-        lqc_reportDiagnostics();
-        lqc_reportFault();
-    }
-    return false;
-}
+// bool lqc_reportResetToCloud(uint8_t rcause)
+// {
+//     if (rcause != diagRcause_watchdog && rcause != diagRcause_system)           // if non-error reset, nothing to report
+//     {
+//         lqc_reportMetrics();
+//         lqc_reportDiagnostics();
+//         lqc_reportFault();
+//     }
+//     return false;
+// }
 
 
 /**
@@ -52,15 +52,21 @@ bool lqc_reportResetToCloud(uint8_t rcause)
  * 
  *  Send LQCloud performance metrics information.
  */
-void lqc_reportMetrics()
+void lqc_reportCommMetrics()
 {
     char alrtSummary[40];
     char alrtBody[120] = {0};
 
-    snprintf(alrtSummary, sizeof(alrtSummary), "%s Metrics", g_lqCloud.deviceLabel);
-    LQC_composeMetricsReport(alrtBody, sizeof(alrtBody));
+    snprintf(alrtSummary, sizeof(alrtSummary), "%s CommMetrics", g_lqCloud.deviceCnfg->deviceLabel);
+    LQC_composeCommMetricsReport(alrtBody, sizeof(alrtBody));
+    LQC_sendAlert(lqcEventClass_lqcloud, "CommMetricsReport", alrtSummary, alrtBody);
 
-    LQC_sendAlert(lqcEventClass_lqcloud, "MetricsReport", alrtSummary, alrtBody);
+    g_lqCloud.commMetrics.metricsStart = pMillis;                       // reset LQC comm metrics
+    g_lqCloud.commMetrics.connectResets = 0;
+    g_lqCloud.commMetrics.sendLastDuration = 0;
+    g_lqCloud.commMetrics.sendMaxDuration = 0;
+    g_lqCloud.commMetrics.sendSucceeds = 0;
+    g_lqCloud.commMetrics.sendFailures = 0;
 }
 
 
@@ -74,7 +80,7 @@ void lqc_reportDiagnostics()
     char alrtSummary[40];
     char alrtBody[120] = {0};
 
-    snprintf(alrtSummary, sizeof(alrtSummary), "%s Diags", g_lqCloud.deviceLabel);
+    snprintf(alrtSummary, sizeof(alrtSummary), "%s Diags", g_lqCloud.deviceCnfg->deviceLabel);
     LQC_composeDiagnosticsReport(alrtBody, sizeof(alrtBody));
 
     LQC_sendAlert(lqcEventClass_lqcloud, "DiagnosticsReport", alrtSummary, alrtBody);
@@ -91,50 +97,29 @@ void lqc_reportFault()
     char alrtSummary[40];
     char alrtBody[120] = {0};
 
-    snprintf(alrtSummary, sizeof(alrtSummary), "%s Diags", g_lqCloud.deviceLabel);
+    snprintf(alrtSummary, sizeof(alrtSummary), "%s Diags", g_lqCloud.deviceCnfg->deviceLabel);
     LQC_composeFaultReport(alrtBody, sizeof(alrtBody));
 
     LQC_sendAlert(lqcEventClass_lqcloud, "FaultReport", alrtSummary, alrtBody);
 }
 
 
-void LQC_composeMetricsReport(char *report, uint8_t bufferSz)
+void LQC_composeCommMetricsReport(char *report, uint8_t bufferSz)
 {
-    snprintf(report, bufferSz, "{\"cResets\":%d,\"pubMaxRtry\":%d,\"pubMaxDur\":%d,\"pubLstDur\":%d,\"pubLstFail\":%d}\r", 
-             g_lqCloud.perfMetrics.connectResets,
-             g_lqCloud.perfMetrics.publishMaxRetries,
-             g_lqCloud.perfMetrics.publishMaxDuration,
-             g_lqCloud.perfMetrics.publishLastDuration,
-             g_lqCloud.perfMetrics.publishLastFailResult);
+    snprintf(report, bufferSz, "{\"resets\":%d,\"sndMaxDur\":%d,\"sndLstDur\":%d,\"succeedCnt\":%d, \"failCnt\":%d}\r", 
+             g_lqCloud.commMetrics.connectResets,
+             g_lqCloud.commMetrics.sendMaxDuration,
+             g_lqCloud.commMetrics.sendLastDuration,
+             g_lqCloud.commMetrics.sendSucceeds,
+             g_lqCloud.commMetrics.sendFailures
+    );
 }
-
-
-// void LQC_composeDiagnosticsReport(char *report, uint8_t bufferSz)
-// {
-//     snprintf(report, bufferSz, "{\"rcause\":%d,\"diagCd\":%d,\"diagMsg\":\"%s\", \"signalState\":%d, \"ntwkState\":%d,\"commState\":%d}\r", 
-//              g_diagControl.diagnosticInfo.rcause,
-//              g_diagControl.diagnosticInfo.notifType,
-//              g_diagControl.diagnosticInfo.notifMsg,
-//              g_diagControl.diagnosticInfo.signalState,
-//              g_diagControl.diagnosticInfo.ntwkState,
-//              g_diagControl.diagnosticInfo.commState);
-
-// }
-
-
-// void LQC_composeFaultReport(char *report, uint8_t bufferSz)
-// {
-//     snprintf(report, bufferSz, "{\"tbd\":%d,\"tbd\":%d}\r", 
-//              g_diagControl.diagnosticInfo.rcause,
-//              g_diagControl.diagnosticInfo.notifType);
-// }
-
 
 void LQC_clearMetrics(lqcMetricsType_t metricType)
 {
     if (metricType == lqcMetricsType_metrics || metricType == lqcMetricsType_all)
     {
-        memset(&g_lqCloud.perfMetrics, 0, sizeof(lqcMetrics_t));
+        memset(&g_lqCloud.commMetrics, 0, sizeof(lqcCommMetrics_t));
     }
     if (metricType == lqcMetricsType_diagnostics || metricType == lqcMetricsType_all)
     {
