@@ -1,0 +1,8 @@
+{
+    "sketch": "LQCloud-StaticConfig.ino",
+    "port": "COM19",
+    "board": "adafruit:samd:adafruit_feather_m0",
+    "configuration": "opt=small,usbstack=arduino,debug=on",
+    "debugger": "jlink",
+    "output": "./.build"
+}
